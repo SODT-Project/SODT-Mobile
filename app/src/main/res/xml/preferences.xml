@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <EditTextPreference
+        android:defaultValue="ehrke.me"
+        android:key="preference_server_address"
+        android:selectAllOnFocus="true"
+        android:singleLine="true"
+        android:title="@string/preference_server_ip" />
+    <EditTextPreference
+        android:defaultValue="45645"
+        android:key="preference_server_port"
+        android:selectAllOnFocus="true"
+        android:singleLine="true"
+        android:title="@string/preference_server_port" />
+    <EditTextPreference
+        android:defaultValue="-----BEGIN RSA PUBLIC KEY----- MIICCgKCAgEAzUNG10DDBNGCYzhdSd1rYsjFijkW1dx+kNH0XB1IGOUieqfQn8TM 32kEe+9dl2fqtqKJkOyaXJlme7yq9tdNv7B+aHfm64XiYgolCJT65Xj2D4UfuAjx GW8Z5zUwwyY4rueEM7E4MBzY+9+xW5l9mRDdjC+2bq2Q74ybO7jV1syCAmQy28Ij pjjK072hVolnYnOC14b8Tgot+mYPNI8MbjhpFggga37IJI7YVW5LIp711BR7j3HE rXF8eFHsalgff9wKjQWqHTPJRB+6KfINVNP907Yiq3P6yG0r9m+teWdewdGar/En 34tNKXv9n6xUB4ysMFPW2MBzc8oJsxYGs7RqSWIU/vxODYYdO679Q58Ihaml80FF CYnJ1DYRCT+CMmZhHNNpVacpZt5Nxb1mVRe7UroGLdZRvZC5vxz+fOnFXlIkNrBi QvjJ0AuOyg4wIOk8ZcgQM+9Q54LmutaY5rK4i7/4Tu5BEHIYD/iWPpQDWMkNLhH+ /qM/Fl+QH29ETVnZQM33sWMSqCnu8K1LzhAnmgspH8fYwofF9fx+IB5VDDqNeGc3 STxTlVzvqLaEeQrWB/ITcbU5yRfzNbyCbZs4Oz4h/nAcFj5+aw/6Lp+Xt0YPZDIJ jz/YEnktcZnZq616geTkA2P3ebIyZ/pRiUI0bDFXITNx8lKW2FSIWssCAwEAAQ== -----END RSA PUBLIC KEY-----"
+        android:key="preference_server_public_key"
+        android:selectAllOnFocus="true"
+        android:singleLine="false"
+        android:title="@string/preference_server_public_key" />
+</PreferenceScreen>
