@@ -27,7 +27,7 @@ class SodtReceiver (
      * This method parses the JSON string into a SodtPacket object
      * and calls the appropriate method to handle the packet.
      */
-    private fun convertPacket(buffer: ByteArray) {
+    private fun convertPacket(sourceId: UByte, buffer: ByteArray) {
         val json = String(buffer, Charsets.UTF_8)
         val gson = Gson()
         val jsonObject = JsonParser.parseString(json).asJsonObject
@@ -44,8 +44,8 @@ class SodtReceiver (
             "discovery" -> sodtClient.receiveDiscoveryResponse(gson.fromJson(json, SodtPackets.DiscoveryPayload::class.java))
             "pingpong" -> return // pinpong are only used for keep alive, no action is needed
             "clients" -> sodtClient.receiveClientList(gson.fromJson(json, SodtPackets.ClientListPayload::class.java))
-            "exchange" -> sodtClient.respondToKeyExchange(gson.fromJson(json, SodtPackets.KeyExchangePayload::class.java))
-            "transfer" -> sodtClient.respondToTransferRequest(gson.fromJson(json, SodtPackets.InitTransferPayload::class.java))
+            "exchange" -> sodtClient.respondToKeyExchange(sourceId, gson.fromJson(json, SodtPackets.KeyExchangePayload::class.java))
+            "transfer" -> sodtClient.respondToTransferRequest(sourceId, gson.fromJson(json, SodtPackets.InitTransferPayload::class.java))
             "file" -> sodtClient.receiveFileData(gson.fromJson(json, SodtPackets.TransferDataPayload::class.java))
             "disconnect" -> sodtClient.disconnect()
             else -> throw IllegalArgumentException("Unknown packet")
@@ -75,6 +75,6 @@ class SodtReceiver (
         val size = bytesToUShort(payload[0], payload[1])
         // get message from decrypted packet
         val finalDecryptedMessage = payload.slice(SodtConstants.CONTENT_LENGTH_SIZE until  (SodtConstants.CONTENT_LENGTH_SIZE + size.toInt())).toByteArray()
-        convertPacket(finalDecryptedMessage)
+        convertPacket(sourceId, finalDecryptedMessage)
     }
 }

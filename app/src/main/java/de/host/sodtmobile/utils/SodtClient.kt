@@ -17,6 +17,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.FileOutputStream
 import java.nio.ByteBuffer
+import java.security.MessageDigest
 
 /** * SodtClient is the main class for the Sodt client.
  * It handles the connection to the server, sending and receiving packets, and file transfers.
@@ -38,7 +39,6 @@ open class SodtClient(
         SodtReceiver(encryptionManager, this) // not ideal logic but it works
     private var networkingClient: NetworkingClient =
         NetworkingClient(sodtReceiver, serverAddress, serverPort)
-    private val FILE_BUFFER_SIZE = 3003 // Size of the buffer for the data in file transfers
 
     /**
      * Flag to indicate if the client has been initiated and sent the initial discovery message.
@@ -135,14 +135,8 @@ open class SodtClient(
      * Requests a key exchange with the specified receiver.
      */
     private fun requestKeyExchange(receiverID: UByte) {
-        val payload = SodtPackets.KeyExchangePayload(
-            code = 100,
-            key = encryptionManager.getPublicEcdhKeyAsBase64(),
-            sessionHash = null, // sessionHash won't be implemented in the first version
-            sourceId = Globals.clientID,
-            targetId = receiverID
-        )
-        sendEncryptServerPaketAES(payload)
+        val payload = SodtPackets.KeyExchangePayload(code = 100, key = encryptionManager.getPublicEcdhKeyAsBase64())
+        sendEncryptClientPacketAES(receiverID, payload)
     }
 
     /**
@@ -150,30 +144,26 @@ open class SodtClient(
      * This method processes the key exchange request or response and updates the session keys accordingly.
      * @param requestPacket The key exchange payload received from the server.
      */
-    fun respondToKeyExchange(requestPacket: SodtPackets.KeyExchangePayload) {
+    fun respondToKeyExchange(remoteID: UByte, requestPacket: SodtPackets.KeyExchangePayload) {
         // handle possible errors
         if (requestPacket.key.isEmpty()) {
-            LogsActivity.addLog("Key exchange failed with ${requestPacket.sourceId}: Key is empty")
+            LogsActivity.addLog("Key exchange failed with ${remoteID}: Key is empty")
             Log.e(TAG, "Key exchange failed: Key is empty")
             return
         }
         when (requestPacket.code) {
             100 -> {
-                LogsActivity.addLog("Key exchange requested by: " + requestPacket.sourceId)
-                Log.d(TAG, "Key exchange requested by : " + requestPacket.sourceId)
+                LogsActivity.addLog("Key exchange requested by: $remoteID")
+                Log.d(TAG, "Key exchange requested by : $remoteID")
                 val responsePacket = SodtPackets.KeyExchangePayload(
                     code = 200,
-                    key = encryptionManager.getPublicEcdhKeyAsBase64(),
-                    sessionHash = null, // sessionHash won't be implemented in the first version
-                    sourceId = Globals.clientID,
-                    targetId = requestPacket.sourceId
-                )
-                sendEncryptServerPaketAES(responsePacket)
+                    key = encryptionManager.getPublicEcdhKeyAsBase64())
+                sendEncryptClientPacketAES(remoteID, responsePacket)
             }
 
             200 -> {
-                LogsActivity.addLog("Key exchange successful with " + requestPacket.sourceId)
-                Log.d(TAG, "Key exchange successful with " + requestPacket.sourceId)
+                LogsActivity.addLog("Key exchange successful with $remoteID")
+                Log.d(TAG, "Key exchange successful with $remoteID")
             }
 
             else -> {
@@ -183,9 +173,8 @@ open class SodtClient(
             }
         }
         // generate key exchange pair from dataPacket (if code was 100 or 200)
-        val aesKeyMaterial =
-            encryptionManager.generateSessionAesKeyFromExchangeMessage(requestPacket)
-        encryptionManager.addClientSessionKey(requestPacket.sourceId, aesKeyMaterial)
+        val aesKeyMaterial = encryptionManager.generateSessionAesKeyFromExchangeMessage(requestPacket)
+        encryptionManager.addClientSessionKey(remoteID, aesKeyMaterial)
     }
 
     /**
@@ -267,32 +256,53 @@ open class SodtClient(
         }
     }
 
-    fun requestFileTransfer(receiverID: UByte, fileUri: Uri) {
-        // get name and size of the file
-        val fileDescriptor = contentResolver.openAssetFileDescriptor(fileUri, "r")
-        val fileSize = fileDescriptor?.length ?: -1L
-        fileDescriptor?.close()
-        val fileName = contentResolver.query(fileUri, null, null, null, null)?.use { cursor ->
+    /**
+     * Calculates the SHA-256 hash of a file provided via Uri.
+     * Returns the hex string representation of the hash.
+     */
+    private fun getFileHash(fileUri: Uri): String {
+        return try {
+            val digest = MessageDigest.getInstance("SHA-256")
+            contentResolver.openInputStream(fileUri)?.use { inputStream ->
+                val buffer = ByteArray(8192)
+                var bytesRead: Int
+                while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                    digest.update(buffer, 0, bytesRead)
+                }
+            }
+            // Convert byte array to Hex String
+            digest.digest().joinToString("") { "%02x".format(it) }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to calculate hash for $fileUri", e)
+            throw e;
+        }
+    }
+
+    private fun getFileName(fileUri: Uri): String{
+        return (contentResolver.query(fileUri, null, null, null, null)?.use { cursor ->
             val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
             if (index != -1 && cursor.moveToFirst()) {
                 cursor.getString(index)
             } else {
                 null
             }
-        } ?: "unknown_file"
+        }) ?: "unknown_file"
+    }
 
-        if (fileSize <= 0) {
-            LogsActivity.addLog("Invalid file size for $fileName")
-            Log.e(TAG, "Invalid file size for $fileName")
-            return
-        }
-        // create a payload
+    fun requestFileTransfer(receiverID: UByte, fileUri: Uri) {
         val payload = SodtPackets.InitTransferPayload(
             code = 100,
-            sourceId = Globals.clientID,
-            filename = fileName,
-            filesize = fileSize
+            filename = getFileName(fileUri),
+            filesize = contentResolver.openAssetFileDescriptor(fileUri, "r")?.use { it.length } ?: -1L,
+            filehash = getFileHash(fileUri)
         )
+
+        if (payload.filesize <= 0) {
+            LogsActivity.addLog("Invalid file size for ${payload.filename}")
+            Log.e(TAG, "Invalid file size for ${payload.filename}")
+            return
+        }
+
         pendingTransferRequests.put(payload.uuid, fileUri)
         // send
         sendEncryptClientPacketAES(receiverID, payload)
@@ -304,15 +314,15 @@ open class SodtClient(
      * It also starts the file transfer if the request is accepted.
      * @param dataPacket The init transfer payload received from the client.
      */
-    open fun respondToTransferRequest(dataPacket: SodtPackets.InitTransferPayload) {
+    open fun respondToTransferRequest(remoteID: UByte, dataPacket: SodtPackets.InitTransferPayload) {
         when (dataPacket.code) {
             100 -> {
                 LogsActivity.addLog(
-                    "Transfer request from ${dataPacket.sourceId} for file ${dataPacket.filename} of size ${dataPacket.filesize}"
+                    "Transfer request from $remoteID for file ${dataPacket.filename} of size ${dataPacket.filesize}"
                 )
                 Log.d(
                     TAG,
-                    "Transfer request from ${dataPacket.sourceId} for file ${dataPacket.filename} of size ${dataPacket.filesize}"
+                    "Transfer request from $remoteID for file ${dataPacket.filename} of size ${dataPacket.filesize}"
                 )
                 // check if the file already exists in incoming transfers
                 if (incomingTransfers.containsKey(dataPacket.uuid)) {
@@ -334,11 +344,11 @@ open class SodtClient(
                 val responsePacket = SodtPackets.InitTransferPayload(
                     code = 200,
                     uuid = dataPacket.uuid,
-                    sourceId = Globals.clientID,
                     filename = dataPacket.filename,
-                    filesize = dataPacket.filesize
+                    filesize = dataPacket.filesize,
+                    filehash = dataPacket.filehash
                 )
-                sendEncryptClientPacketAES(dataPacket.sourceId, responsePacket)
+                sendEncryptClientPacketAES(remoteID, responsePacket)
             }
 
             200 -> {
@@ -347,9 +357,12 @@ open class SodtClient(
                     TAG,
                     "Transfer request accepted for file ${dataPacket.filename} of size ${dataPacket.filesize}"
                 )
-                sendFile(dataPacket.sourceId, dataPacket.uuid)
+                sendFile(remoteID, dataPacket.uuid)
                 // rest is handled in sendFile method
             }
+            250 -> {} // TODO
+            300 -> {} // TODO
+            400 -> {} // TODO
 
             else -> {
                 LogsActivity.addLog("Transfer request failed. Code: ${dataPacket.code}")
