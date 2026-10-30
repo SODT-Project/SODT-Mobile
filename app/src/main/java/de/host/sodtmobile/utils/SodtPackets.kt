@@ -1,6 +1,7 @@
 package de.host.sodtmobile.utils
 
 import com.google.gson.Gson
+import org.bouncycastle.asn1.ocsp.Signature
 import java.util.UUID
 
 /** * This object contains all packets used in the SODT protocol.
@@ -54,8 +55,8 @@ class SodtPackets {
         override val type: String = "discovery",
         override val code: Int,
         override val uuid: Int = UUID.randomUUID().hashCode(),
-        val key: String?,
-        val iv: String?
+        val publicKey: String,
+        val signature: String
     ) : IBasePacket {
         override fun toJson(): String {
             return Gson().toJson(this)
@@ -78,9 +79,6 @@ class SodtPackets {
         override val code: Int,
         override val uuid: Int = UUID.randomUUID().hashCode(),
         val key: String,
-        val sessionHash: String? = null, // sessionHash won't be implemented in the first version
-        val sourceId: UByte,
-        val targetId: UByte
     ) : IBasePacket {
         override fun toJson(): String {
             return Gson().toJson(this)
@@ -103,8 +101,7 @@ class SodtPackets {
         override val uuid: Int = UUID.randomUUID().hashCode(),
         val filename: String,
         val filesize: Long, // DO NOT RENAME filesize, it must have the same the name like in the json file
-        val sourceId: UByte,
-        val compress: Boolean = false // compress is not implemented in the mobile version
+        val filehash: String // DO NOT RENAME filehash, ...
     ) : IBasePacket {
         override fun toJson(): String {
             return Gson().toJson(this)
@@ -117,6 +114,16 @@ class SodtPackets {
         override val uuid: Int = UUID.randomUUID().hashCode(),
         val data: String,
         val position: Long
+    ) : IBasePacket {
+        override fun toJson(): String {
+            return Gson().toJson(this)
+        }
+    }
+
+    data class PingPong(
+        override val type: String = "pingpong",
+        override val code: Int,
+        override val uuid: Int = UUID.randomUUID().hashCode(),
     ) : IBasePacket {
         override fun toJson(): String {
             return Gson().toJson(this)
