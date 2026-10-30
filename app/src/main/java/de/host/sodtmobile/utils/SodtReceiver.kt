@@ -42,6 +42,7 @@ class SodtReceiver (
 
         when (type) {
             "discovery" -> sodtClient.receiveDiscoveryResponse(gson.fromJson(json, SodtPackets.DiscoveryPayload::class.java))
+            "pingpong" -> return // pinpong are only used for keep alive, no action is needed
             "clients" -> sodtClient.receiveClientList(gson.fromJson(json, SodtPackets.ClientListPayload::class.java))
             "exchange" -> sodtClient.respondToKeyExchange(gson.fromJson(json, SodtPackets.KeyExchangePayload::class.java))
             "transfer" -> sodtClient.respondToTransferRequest(gson.fromJson(json, SodtPackets.InitTransferPayload::class.java))
@@ -60,23 +61,20 @@ class SodtReceiver (
      */
     override fun onDataReceived(dataPacket: ByteArray) {
         val sourceId: UByte = dataPacket[1].toUByte()
-        // removes the sender and receiver bytes
-        val payload = dataPacket.slice(2 until dataPacket.size).toByteArray()
+        // removes the header but keeps the content length bytes
+
         // decrypt the payload with AES
-        val decryptedPacket = if (sourceId == Globals.SERVER_ID) {
-            encryptionManager.decryptWithAesServer(payload)
-        } else {
-            encryptionManager.decryptWithAesClient(sourceId, payload)
-        }
+        val decryptedPacket = encryptionManager.decryptAesGcm(sourceId, dataPacket)
         if (decryptedPacket == null) {
             LogsActivity.addLog("Decryption failed for source ID: $sourceId")
             Log.e(TAG, "Decryption failed for source ID: $sourceId")
             return
         }
+        val payload = dataPacket.slice(SodtConstants.HEADER_SIZE_WITHOUT_CONTENT_LENGTH until decryptedPacket.size).toByteArray()
         // the first two bytes are the size of the message
-        val size = bytesToUShort(decryptedPacket[0], decryptedPacket[1])
+        val size = bytesToUShort(payload[0], payload[1])
         // get message from decrypted packet
-        val decryptedMessage = decryptedPacket.slice(2 until  (2 + size.toInt())).toByteArray()
-        convertPacket(decryptedMessage)
+        val finalDecryptedMessage = payload.slice(SodtConstants.CONTENT_LENGTH_SIZE until  (SodtConstants.CONTENT_LENGTH_SIZE + size.toInt())).toByteArray()
+        convertPacket(finalDecryptedMessage)
     }
 }
