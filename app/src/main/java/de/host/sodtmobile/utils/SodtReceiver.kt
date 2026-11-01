@@ -61,16 +61,23 @@ class SodtReceiver (
      */
     override fun onDataReceived(dataPacket: ByteArray) {
         val sourceId: UByte = dataPacket[1].toUByte()
-        // removes the header but keeps the content length bytes
+        val nonceAndTag = dataPacket.slice(SodtConstants.ID_SIZE until SodtConstants.HEADER_SIZE_WITHOUT_CONTENT_LENGTH)
 
-        // decrypt the payload with AES
-        val decryptedPacket = encryptionManager.decryptAesGcm(sourceId, dataPacket)
-        if (decryptedPacket == null) {
+        // check if nonce and tag are all zeros => message is unencrypted
+        val decryptedMessage: ByteArray? =
+        if (nonceAndTag.all { it == 0.toByte() }) {
+             dataPacket.slice(SodtConstants.HEADER_SIZE_WITHOUT_CONTENT_LENGTH until dataPacket.size).toByteArray()
+        }
+        else{
+            encryptionManager.decryptAesGcm(sourceId, dataPacket)
+        }
+
+        if (decryptedMessage == null) {
             LogsActivity.addLog("Decryption failed for source ID: $sourceId")
             Log.e(TAG, "Decryption failed for source ID: $sourceId")
             return
         }
-        val payload = dataPacket.slice(SodtConstants.HEADER_SIZE_WITHOUT_CONTENT_LENGTH until decryptedPacket.size).toByteArray()
+        val payload = dataPacket.slice(SodtConstants.HEADER_SIZE_WITHOUT_CONTENT_LENGTH until decryptedMessage.size)
         // the first two bytes are the size of the message
         val size = bytesToUShort(payload[0], payload[1])
         // get message from decrypted packet

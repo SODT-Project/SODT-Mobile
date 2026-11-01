@@ -5,6 +5,7 @@ data class TransferElement(
     val senderName: String,
     val fileName : String,
     val totalSize: Long,
+    val fileHash: String,
     var remainingSize: Long,
 ) : IListElement {
     override val displayString: String

@@ -33,12 +33,15 @@ open class SodtClient(
     encryptionKey: String,
     private val contentResolver: ContentResolver
 ) {
-    private var encryptionManager: EncryptionManager = EncryptionManager(encryptionKey)
+
+
+    private var encryptionManager: EncryptionManager = EncryptionManager()
 
     private var sodtReceiver: SodtReceiver =
         SodtReceiver(encryptionManager, this) // not ideal logic but it works
     private var networkingClient: NetworkingClient =
         NetworkingClient(sodtReceiver, serverAddress, serverPort)
+    private val connectedClients = mutableListOf<UByte>()
 
     /**
      * Flag to indicate if the client has been initiated and sent the initial discovery message.
@@ -75,23 +78,6 @@ open class SodtClient(
         }
     }
 
-    /**
-     * Sends an encrypted packet to the server.
-     * This method encrypts the packet using AES and sends it to the server.
-     * @param dataPaket The data packet to be sent.
-     */
-    private fun sendEncryptServerPaketAES(dataPaket: SodtPackets.IBasePacket) {
-        Log.d(TAG, "Sending to server: ${dataPaket.toJson()}")
-        CoroutineScope(Dispatchers.Default).launch {
-            val encryptedPacket = encryptionManager.encryptWithAesServer(dataPaket.toByteArray())
-            if (encryptedPacket == null) {
-                LogsActivity.addLog("Failed to encrypt packet for server")
-                Log.e(TAG, "Failed to encrypt packet for server")
-                return@launch
-            }
-            networkingClient.sendData(Globals.SERVER_ID, encryptedPacket)
-        }
-    }
 
     /**
      * Sends an encrypted packet to a specific client.
@@ -99,10 +85,9 @@ open class SodtClient(
      * @param receiverID The ID of the client to send the packet to.
      * @param dataPaket The data packet to be sent.
      */
-    private fun sendEncryptClientPacketAES(receiverID: UByte, dataPaket: SodtPackets.IBasePacket) {
+    private fun sendEncryptedAesPacket(receiverID: UByte, dataPaket: SodtPackets.IBasePacket) {
         CoroutineScope(Dispatchers.Default).launch {
-            val encryptedPacket =
-                encryptionManager.encryptWithAesClient(receiverID, dataPaket.toByteArray())
+            val encryptedPacket = encryptionManager.encryptAesGcm(receiverID, dataPaket)
             if (encryptedPacket == null) {
                 LogsActivity.addLog("Failed to encrypt packet for client $receiverID")
                 Log.e(TAG, "Failed to encrypt packet for client $receiverID")
@@ -122,7 +107,7 @@ open class SodtClient(
         val payload = SodtPackets.DisconnectPayload(
             code = 100,
         )
-        sendEncryptServerPaketAES(payload)
+        sendEncryptedAesPacket(Globals.SERVER_ID, payload) // TODO error check
 
         CoroutineScope(Dispatchers.Default).launch {
             networkingClient.close()
@@ -135,8 +120,9 @@ open class SodtClient(
      * Requests a key exchange with the specified receiver.
      */
     private fun requestKeyExchange(receiverID: UByte) {
-        val payload = SodtPackets.KeyExchangePayload(code = 100, key = encryptionManager.getPublicEcdhKeyAsBase64())
-        sendEncryptClientPacketAES(receiverID, payload)
+        throw NotImplementedError()
+        //val payload = SodtPackets.KeyExchangePayload(code = 100, key = encryptionManager.getPublicEcdhKeyAsBase64())
+        //sendEncryptedAesPacket(receiverID, payload)
     }
 
     /**
@@ -157,8 +143,9 @@ open class SodtClient(
                 Log.d(TAG, "Key exchange requested by : $remoteID")
                 val responsePacket = SodtPackets.KeyExchangePayload(
                     code = 200,
-                    key = encryptionManager.getPublicEcdhKeyAsBase64())
-                sendEncryptClientPacketAES(remoteID, responsePacket)
+                    key = "TODO CHANGE ME")//encryptionManager.getPublicEcdhKeyAsBase64())
+                throw NotImplementedError()
+                sendEncryptedAesPacket(remoteID, responsePacket)
             }
 
             200 -> {
@@ -173,8 +160,8 @@ open class SodtClient(
             }
         }
         // generate key exchange pair from dataPacket (if code was 100 or 200)
-        val aesKeyMaterial = encryptionManager.generateSessionAesKeyFromExchangeMessage(requestPacket)
-        encryptionManager.addClientSessionKey(remoteID, aesKeyMaterial)
+        val aesKeyMaterial = encryptionManager.generateSessionAesKeyFromExchangeMessage(Globals.clientID, requestPacket)
+        encryptionManager.addSessionKey(remoteID, aesKeyMaterial)
     }
 
     /**
@@ -191,12 +178,12 @@ open class SodtClient(
                 .split(",")
         // remove all old clients (clients that are in the sessionKeys map but not in the new client list)
         // this is necessary to dispose keys of clients that are no longer connected
-        for (client in encryptionManager.getAllConnectedClientIds()) {
+        for (client in connectedClients) {
             if (!clients.contains(client.toString())) {
                 // remove client from sessionKeys map
                 LogsActivity.addLog("Removing client $client from client list")
                 Log.d(TAG, "Removing client $client from client list")
-                encryptionManager.removeClientSessionKey(client)
+                encryptionManager.removeSessionKey(client)
             }
         }
         // request key exchange for all clients that are not the server and do not have a session key yet
@@ -223,34 +210,25 @@ open class SodtClient(
             LogsActivity.addLog("Illegal Discovery response received with invalid client ID = 0")
             disconnect()
         }
-
+        // TODO verify signature
+        Log.w(TAG, "Discovery not verified")
         Globals.clientID = dataPacket.id
         LogsActivity.addLog("Your client ID is ${dataPacket.id}")
         Log.d(TAG, "Your ID: ${dataPacket.id}")
     }
 
-    /**
-     * Initial discovery process.
-     * This method sends a discovery message to the server to initiate the connection.
-     * It includes the server's AES session key and IV for encryption between the client and server.
-     * This method is called when the client connects to the server for the first time. (init block)
-     */
+
     private fun initialDiscovery() {
+
         val payload = SodtPackets.DiscoveryPayload(
             id = 0u,
             code = 100,
-            key = encryptionManager.getAesServerSessionKeyAsBase64(),
-            iv = encryptionManager.getAesServerSessionIVAsBase64()
+            publicKey = encryptionManager.createEcdhKeyPair(SodtConstants.SERVER_ID),
+            signature = null
         )
 
         CoroutineScope(Dispatchers.Default).launch {
-            val data = encryptionManager.encryptRsa(payload.toByteArray())
-            if (data == null) {
-                LogsActivity.addLog("Failed to encrypt discovery message")
-                Log.e(TAG, "Failed to encrypt discovery message")
-                return@launch
-            }
-            networkingClient.sendData(Globals.SERVER_ID, data)
+            networkingClient.sendData(Globals.SERVER_ID, payload.toByteArray())
             LogsActivity.addLog("Sent discovery message to server")
             Log.d("SodtClient", "Send discovery message")
         }
@@ -305,7 +283,7 @@ open class SodtClient(
 
         pendingTransferRequests.put(payload.uuid, fileUri)
         // send
-        sendEncryptClientPacketAES(receiverID, payload)
+        sendEncryptedAesPacket(receiverID, payload)
     }
 
     /**
@@ -348,7 +326,7 @@ open class SodtClient(
                     filesize = dataPacket.filesize,
                     filehash = dataPacket.filehash
                 )
-                sendEncryptClientPacketAES(remoteID, responsePacket)
+                sendEncryptedAesPacket(remoteID, responsePacket)
             }
 
             200 -> {
@@ -500,7 +478,7 @@ open class SodtClient(
             return
         }
         CoroutineScope(Dispatchers.IO).launch {
-            val buffer = ByteArray(FILE_BUFFER_SIZE)
+            val buffer = ByteArray(SodtConstants.FILE_BUFFER_SIZE)
             var bytesRead: Int
             try {
                 // Open the file input stream
@@ -516,7 +494,7 @@ open class SodtClient(
                             position = position
                         )
                         position += bytesRead
-                        sendEncryptClientPacketAES(targetId, dataPacket)
+                        sendEncryptedAesPacket(targetId, dataPacket)
                     }
                     LogsActivity.addLog("Send File completed for UUID $uuid")
                     Log.d(TAG, "Send File completed for UUID $uuid")

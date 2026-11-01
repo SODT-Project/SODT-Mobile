@@ -56,7 +56,7 @@ class SodtPackets {
         override val code: Int,
         override val uuid: Int = UUID.randomUUID().hashCode(),
         val publicKey: String,
-        val signature: String
+        val signature: String?
     ) : IBasePacket {
         override fun toJson(): String {
             return Gson().toJson(this)

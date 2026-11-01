@@ -66,16 +66,17 @@ class SodtClientUiWrapper(
 
     }
 
-    override fun respondToTransferRequest(dataPacket: SodtPackets.InitTransferPayload){
-        super.respondToTransferRequest(dataPacket)
+    override fun respondToTransferRequest(remoteID: UByte, dataPacket: SodtPackets.InitTransferPayload) {
+        super.respondToTransferRequest(remoteID, dataPacket)
         when (dataPacket.code) {
             100 -> {
                 // save the transfer request
                 transferList.add(0, TransferElement(
                     transferId = dataPacket.uuid,
-                    senderName = dataPacket.sourceId.toString(),
+                    senderName = remoteID.toString(),
                     fileName = dataPacket.filename,
                     totalSize = dataPacket.filesize,
+                    fileHash = dataPacket.filehash,
                     remainingSize = dataPacket.filesize
                 ))
                 CoroutineScope(Dispatchers.Main).launch { transferListElementAdapter.notifyItemInserted(0) }
