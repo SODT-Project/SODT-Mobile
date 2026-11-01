@@ -136,6 +136,7 @@ class EncryptionManager() {
     }
 
     fun decryptAesGcm(clientId: UByte, receivedData: ByteArray): ByteArray? {
+        return null
         // TODO check receivedData == 4096
 
         // prepare decryption and get relevant data

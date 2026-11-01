@@ -86,6 +86,7 @@ open class SodtClient(
      * @param dataPaket The data packet to be sent.
      */
     private fun sendEncryptedAesPacket(receiverID: UByte, dataPaket: SodtPackets.IBasePacket) {
+        return; // TODO remove debug return
         CoroutineScope(Dispatchers.Default).launch {
             val encryptedPacket = encryptionManager.encryptAesGcm(receiverID, dataPaket)
             if (encryptedPacket == null) {
@@ -93,7 +94,7 @@ open class SodtClient(
                 Log.e(TAG, "Failed to encrypt packet for client $receiverID")
                 return@launch
             }
-            networkingClient.sendData(receiverID, encryptedPacket)
+            networkingClient.sendData(receiverID, encryptedPacket!!) // TODO remove !!
         }
     }
 
@@ -226,9 +227,10 @@ open class SodtClient(
             publicKey = encryptionManager.createEcdhKeyPair(SodtConstants.SERVER_ID),
             signature = null
         )
-
+        // because discovery is not encrypted prepend nonce and tag manually with zeros
+        val cryptoHeader = ByteArray(SodtConstants.TAG_SIZE + SodtConstants.NONCE_SIZE)
         CoroutineScope(Dispatchers.Default).launch {
-            networkingClient.sendData(Globals.SERVER_ID, payload.toByteArray())
+            networkingClient.sendData(Globals.SERVER_ID, cryptoHeader + payload.toByteArray())
             LogsActivity.addLog("Sent discovery message to server")
             Log.d("SodtClient", "Send discovery message")
         }
