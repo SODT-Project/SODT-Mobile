@@ -161,7 +161,7 @@ open class SodtClient(
             }
         }
         // generate key exchange pair from dataPacket (if code was 100 or 200)
-        val aesKeyMaterial = encryptionManager.generateSessionAesKeyFromExchangeMessage(Globals.clientID, requestPacket)
+        val aesKeyMaterial = encryptionManager.generateSessionAesKeyFromExchangeMessage(Globals.clientID, requestPacket.key)
         encryptionManager.addSessionKey(remoteID, aesKeyMaterial)
     }
 
@@ -194,10 +194,6 @@ open class SodtClient(
             if (clientId == null || clientId == Globals.SERVER_ID) {
                 continue
             }
-            // check if the client already has a session key
-            if (!encryptionManager.hasClientSessionKeyFor(clientId)) {
-                requestKeyExchange(clientId)
-            }
         }
     }
 
@@ -213,6 +209,11 @@ open class SodtClient(
         }
         // TODO verify signature
         Log.w(TAG, "Discovery not verified")
+        // generate key
+        val aes = encryptionManager.generateSessionAesKeyFromExchangeMessage(Globals.SERVER_ID, dataPacket.publicKey)
+        encryptionManager.addSessionKey(Globals.SERVER_ID, aes)
+
+
         Globals.clientID = dataPacket.id
         LogsActivity.addLog("Your client ID is ${dataPacket.id}")
         Log.d(TAG, "Your ID: ${dataPacket.id}")

@@ -69,7 +69,7 @@ class SodtReceiver (
              dataPacket.slice(SodtConstants.HEADER_SIZE_WITHOUT_CONTENT_LENGTH until dataPacket.size).toByteArray()
         }
         else{
-            encryptionManager.decryptAesGcm(sourceId, dataPacket)
+             encryptionManager.decryptAesGcm(sourceId, dataPacket)
         }
 
         if (decryptedMessage == null) {
@@ -77,11 +77,10 @@ class SodtReceiver (
             Log.e(TAG, "Decryption failed for source ID: $sourceId")
             return
         }
-        val payload = dataPacket.slice(SodtConstants.HEADER_SIZE_WITHOUT_CONTENT_LENGTH until decryptedMessage.size)
         // the first two bytes are the size of the message
-        val size = bytesToUShort(payload[0], payload[1])
+        val size = bytesToUShort(decryptedMessage[0], decryptedMessage[1])
         // get message from decrypted packet
-        val finalDecryptedMessage = payload.slice(SodtConstants.CONTENT_LENGTH_SIZE until  (SodtConstants.CONTENT_LENGTH_SIZE + size.toInt())).toByteArray()
+        val finalDecryptedMessage = decryptedMessage.slice(SodtConstants.CONTENT_LENGTH_SIZE until  (SodtConstants.CONTENT_LENGTH_SIZE + size.toInt())).toByteArray()
         convertPacket(sourceId, finalDecryptedMessage)
     }
 }

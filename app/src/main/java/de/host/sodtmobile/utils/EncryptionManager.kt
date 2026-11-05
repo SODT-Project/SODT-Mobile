@@ -15,6 +15,7 @@ import java.security.spec.X509EncodedKeySpec
 import javax.crypto.KeyAgreement
 import javax.crypto.SecretKey
 import javax.crypto.Cipher
+import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
@@ -76,9 +77,9 @@ class EncryptionManager() {
         return getEcdhKeyAsBase64(remoteId)
     }
 
-    private fun deriveSharedSecretFromBase64Key(ownId: UByte,  base64otherPublicKey: String): ByteArray {
+    private fun deriveSharedSecretFromBase64Key(remoteId: UByte, base64otherPublicKey: String): ByteArray {
         // get matching key pair from generator
-        val ecdhKeyPair = ecdhSessionKeyGenerators[ownId]
+        val ecdhKeyPair = ecdhSessionKeyGenerators[remoteId]
         // get otherPublicKey keyBytes
         val keyBytes = Base64.decode(base64otherPublicKey, Base64.NO_WRAP)
         // Convert to ECDH public key
@@ -109,45 +110,41 @@ class EncryptionManager() {
         return secretKey
     }
 
-    /**
-     * Generates an AES key from a KeyExchangePayload message.
-     * This is used to derive the session key for secure communication between clients.
-     * @param dataPacket The otherParty KeyExchangePayload containing the Base64 encoded key.
-     * @return AesKeyMaterial containing the derived AES key and IV.
-     */
-    fun generateSessionAesKeyFromExchangeMessage(ownId: UByte, dataPacket: SodtPackets.KeyExchangePayload): SecretKey {
-        val sharedSecret = deriveSharedSecretFromBase64Key(ownId, dataPacket.key)
+
+    fun generateSessionAesKeyFromExchangeMessage(remoteId: UByte, otherKeyBase64: String): SecretKey {
+        val sharedSecret = deriveSharedSecretFromBase64Key(remoteId, otherKeyBase64)
         return deriveAesKeyFromSharedSecret(sharedSecret)
     }
 
     fun encryptAesGcm(clientId: UByte, baseMessage: SodtPackets.IBasePacket): ByteArray? {
 
+        // prepare
         val toEncrypt = baseMessage.toByteArray()
         val aes = aesSessionKeys[clientId]
         val cipher = Cipher.getInstance(aesAlgorithm)
-        val nonce = cipher.iv
         cipher.init(Cipher.ENCRYPT_MODE, aes)
+        // encrypt
+        val nonce = cipher.iv
         val encrypted = cipher.doFinal(toEncrypt)
-        val tag = encrypted.slice(encrypted.size - SodtConstants.TAG_SIZE until encrypted.size).toByteArray() // extract tag, because in sodt protocol its at the beginning of the message
+        val tag = encrypted.slice(encrypted.size - SodtConstants.TAG_SIZE until encrypted.size).toByteArray()
 
-        return nonce + tag + toEncrypt.slice(0 until encrypted.size - SodtConstants.TAG_SIZE)
+        return nonce + tag + encrypted.slice(0 until encrypted.size - SodtConstants.TAG_SIZE) // remove tag, because in sodt protocol its at the beginning of the message
         // TODO implement
         return null
     }
 
     fun decryptAesGcm(clientId: UByte, receivedData: ByteArray): ByteArray? {
-        return null
         // TODO check receivedData == 4096
 
         // prepare decryption and get relevant data
-        val ciphertext = receivedData.slice(SodtConstants.HEADER_SIZE until receivedData.size).toByteArray()
+        val ciphertext = receivedData.slice(SodtConstants.HEADER_SIZE_WITHOUT_CONTENT_LENGTH until receivedData.size).toByteArray()
         val aes = aesSessionKeys[clientId]
+        val tag = receivedData.slice((SodtConstants.ID_SIZE + SodtConstants.NONCE_SIZE) until (SodtConstants.ID_SIZE + SodtConstants.NONCE_SIZE + SodtConstants.TAG_SIZE)).toByteArray()
         val nonce = receivedData.slice(SodtConstants.ID_SIZE until (SodtConstants.ID_SIZE + SodtConstants.NONCE_SIZE)).toByteArray()
         // decrypt
         val cipher = Cipher.getInstance(aesAlgorithm)
-        cipher.init(Cipher.DECRYPT_MODE, aes, IvParameterSpec(nonce))
-        cipher.doFinal(ciphertext)
-        return ciphertext
+        cipher.init(Cipher.DECRYPT_MODE, aes!!, GCMParameterSpec(128, nonce))
+        return cipher.doFinal(ciphertext + tag) // cipher expects tag at the end of the message, but sodt protocol puts tag before message, so reverse it
         // TODO implement errorchecks
         return null
     }
