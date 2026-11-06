@@ -55,23 +55,22 @@ class EncryptionManager() {
         return aesSessionKeys.containsKey(clientId)
     }
 
-    fun getEcdhKeyAsBase64(clientId: UByte): String {
-
+    private fun getEcdhKeyAsBase64(keyPair: KeyPair): String {
         // Get the public key in X.509 format
-        val publicKeyBytes = ecdhSessionKeyGenerators[clientId]
-        return Base64.encodeToString(publicKeyBytes!!.public.encoded, Base64.NO_WRAP) // TODO remove !! with null checks
+        return Base64.encodeToString(keyPair.public.encoded, Base64.NO_WRAP)
     }
 
     fun createEcdhKeyPair(remoteId: UByte): String{
         val keyPairGenerator = KeyPairGenerator.getInstance("EC")
         keyPairGenerator.initialize(ECGenParameterSpec(ecCurve), SecureRandom())
         ecdhSessionKeyGenerators[remoteId] = keyPairGenerator.generateKeyPair()
-        return getEcdhKeyAsBase64(remoteId)
+        return getEcdhKeyAsBase64(ecdhSessionKeyGenerators[remoteId]!!) // !! is safe because it is just added above
     }
 
     private fun deriveSharedSecretFromBase64Key(remoteId: UByte, base64otherPublicKey: String): ByteArray {
         // get matching key pair from generator
         val ecdhKeyPair = ecdhSessionKeyGenerators[remoteId]
+        requireNotNull(ecdhKeyPair){"ECDH key pair not found for client ID: $remoteId."}
         // get otherPublicKey keyBytes
         val keyBytes = Base64.decode(base64otherPublicKey, Base64.NO_WRAP)
         // Convert to ECDH public key
@@ -82,7 +81,7 @@ class EncryptionManager() {
         val remotePublicKey: PublicKey = keyFactory.generatePublic(keySpec)
         // generate shared secret
         val keyAgreement = KeyAgreement.getInstance("ECDH")
-        keyAgreement.init(ecdhKeyPair!!.private) // TODO remove !! with null checks
+        keyAgreement.init(ecdhKeyPair.private)
         keyAgreement.doPhase(remotePublicKey, true)
 
         return keyAgreement.generateSecret() // raw shared secret
@@ -110,38 +109,46 @@ class EncryptionManager() {
     }
 
     fun encryptAesGcm(remoteId: UByte, baseMessage: SodtPackets.IBasePacket): ByteArray? {
-
         // prepare
         val toEncrypt = baseMessage.toByteArray()
         val aes = aesSessionKeys[remoteId]
+        requireNotNull(aes){"AES session key not found for client ID: $remoteId."}
         val cipher = Cipher.getInstance(aesAlgorithm)
         cipher.init(Cipher.ENCRYPT_MODE, aes)
         // encrypt
         val nonce = cipher.iv
         val encrypted = cipher.doFinal(toEncrypt)
         val tag = encrypted.slice(encrypted.size - SodtConstants.TAG_SIZE until encrypted.size).toByteArray()
-        val encryptedWithoutTag = encrypted.slice(0 until encrypted.size - SodtConstants.TAG_SIZE) // remove tag, because in sodt protocol its at the beginning of the message
+        // remove tag, because in sodt protocol its at the beginning of the message
+        val encryptedWithoutTag = encrypted.slice(0 until encrypted.size - SodtConstants.TAG_SIZE)
         return nonce + tag + encryptedWithoutTag
     }
 
     fun decryptAesGcm(clientId: UByte, receivedData: ByteArray): ByteArray? {
-        // TODO check receivedData == 4096
+        require(receivedData.size == SodtConstants.FULL_MESSAGE_SIZE) {
+            "Data size must be exactly ${SodtConstants.FULL_MESSAGE_SIZE} bytes, but was ${receivedData.size}"
+        }
 
         // prepare decryption and get relevant data
         val ciphertext = receivedData.slice(SodtConstants.HEADER_SIZE_WITHOUT_CONTENT_LENGTH until receivedData.size).toByteArray()
-        val aes = aesSessionKeys[clientId]
         val tag = receivedData.slice((SodtConstants.ID_SIZE + SodtConstants.NONCE_SIZE) until (SodtConstants.ID_SIZE + SodtConstants.NONCE_SIZE + SodtConstants.TAG_SIZE)).toByteArray()
         val nonce = receivedData.slice(SodtConstants.ID_SIZE until (SodtConstants.ID_SIZE + SodtConstants.NONCE_SIZE)).toByteArray()
-        // decrypt
         val cipher = Cipher.getInstance(aesAlgorithm)
-        cipher.init(Cipher.DECRYPT_MODE, aes!!, GCMParameterSpec(128, nonce))
-        return cipher.doFinal(ciphertext + tag) // cipher expects tag at the end of the message, but sodt protocol puts tag before message, so reverse it
-        // TODO implement errorchecks
+        // decrypt
+        try {
+            val aes = aesSessionKeys[clientId]
+            cipher.init(Cipher.DECRYPT_MODE, aes, GCMParameterSpec(128, nonce))
+            // cipher expects tag at the end of the message, but sodt protocol puts tag before message, so reverse it
+            return cipher.doFinal(ciphertext + tag)
+        }
+        catch (e: Exception) {
+            Log.e(TAG, "Decryption failed for client ID: $clientId", e)
+        }
         return null
     }
 
-    fun getSharedPhrase(remoteId: UByte, otherKeyBase64: String): String {
-        val sharedSecret = deriveSharedSecretFromBase64Key(remoteId, otherKeyBase64)
+    fun getSharedPhrase(remoteId: UByte, keyExchangePacket: SodtPackets.KeyExchangePayload): String {
+        val sharedSecret = deriveSharedSecretFromBase64Key(remoteId, keyExchangePacket.key)
         val sha256 = MessageDigest.getInstance("SHA-256")
         val derivedKey = sha256.digest(sharedSecret) // 32-byte key
         val keyInHex = derivedKey.joinToString("") { "%02X".format(it) }

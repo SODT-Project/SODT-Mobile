@@ -170,6 +170,19 @@ open class SodtClient(
                 Log.d(TAG, "Key exchange successful with $remoteID")
             }
 
+            300 -> {
+                // remote client denied the key exchange request
+                LogsActivity.addLog("Key exchange denied by $remoteID")
+                Log.d(TAG, "Key exchange denied by $remoteID")
+                return
+            }
+            400 -> {
+                // remote client failed the key exchange request
+                LogsActivity.addLog("Key exchange failed with $remoteID")
+                Log.d(TAG, "Key exchange failed with $remoteID")
+                return
+            }
+
             else -> {
                 LogsActivity.addLog("Unknown key exchange code: ${requestPacket.code}")
                 Log.e(TAG, "Unknown key exchange code: ${requestPacket.code}")
@@ -178,7 +191,7 @@ open class SodtClient(
         }
         // generate key exchange pair from dataPacket (if code was 100 or 200)
         encryptionManager.generateAndStoreAesSessionKeyFromKeyExchange(remoteID, requestPacket.key)
-        val sharedPhrase = encryptionManager.getSharedPhrase(remoteID, requestPacket.key)
+        val sharedPhrase = encryptionManager.getSharedPhrase(remoteID, requestPacket)
         Log.d(TAG, "Shared Phrase: $sharedPhrase") // TODO add to UI
     }
 
@@ -208,9 +221,11 @@ open class SodtClient(
         for (client in clients) {
             val clientId = client.toUByteOrNull()
             // check if clientId is null or if it is the server ID
-            if (clientId == null || clientId == Globals.SERVER_ID) {
+            if (clientId == null || clientId == Globals.SERVER_ID || encryptionManager.hasClientSessionKeyFor(clientId) || clientId == Globals.clientID) {
                 continue
             }
+            connectedClients.add(clientId)
+            requestKeyExchange(clientId)
         }
     }
 
@@ -220,10 +235,15 @@ open class SodtClient(
      * @param dataPacket The discovery payload received from the server.
      */
     fun receiveDiscoveryResponse(dataPacket: SodtPackets.DiscoveryPayload) {
-        if (dataPacket.id.toInt() == 0) {
-            LogsActivity.addLog("Illegal Discovery response received with invalid client ID = 0")
+        if (dataPacket.id.toInt() == 0 || dataPacket.signature == null) {
+            LogsActivity.addLog("Illegal Discovery response received.")
             disconnect()
         }
+        if (dataPacket.code >= 300) {
+            LogsActivity.addLog("Discovery response failed with code ${dataPacket.code}")
+            disconnect()
+        }
+
         // TODO verify signature
         Log.w(TAG, "Discovery not verified")
         encryptionManager.generateAndStoreAesSessionKeyFromKeyExchange(Globals.SERVER_ID, dataPacket.publicKey)
