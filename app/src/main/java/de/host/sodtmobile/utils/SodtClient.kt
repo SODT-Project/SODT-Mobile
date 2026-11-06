@@ -103,6 +103,13 @@ open class SodtClient(
         }
     }
 
+    private fun sendUnencryptedPacket(receiverID: UByte, dataPaket: SodtPackets.IBasePacket) {
+        CoroutineScope(Dispatchers.Default).launch {
+            val cryptoHeader = ByteArray(SodtConstants.TAG_SIZE + SodtConstants.NONCE_SIZE)
+            networkingClient.sendData(receiverID, cryptoHeader + dataPaket.toByteArray())
+        }
+    }
+
     /** Disconnects from the server.
      * This method sends a disconnect packet to the server and closes the networking client.
      * It should be called when the user wants to disconnect from the server.
@@ -127,16 +134,19 @@ open class SodtClient(
      * Requests a key exchange with the specified receiver.
      */
     private fun requestKeyExchange(receiverID: UByte) {
-        throw NotImplementedError()
-        //val payload = SodtPackets.KeyExchangePayload(code = 100, key = encryptionManager.getPublicEcdhKeyAsBase64())
-        //sendEncryptedAesPacket(receiverID, payload)
+        require(receiverID != Globals.clientID) { "Cannot request key exchange with oneself." }
+        require(connectedClients.contains(receiverID)) { "Client $receiverID is not connected." }
+
+        LogsActivity.addLog("Requesting key exchange with $receiverID")
+        Log.d(TAG, "Requesting key exchange with $receiverID")
+
+        val payload = SodtPackets.KeyExchangePayload(
+            code = 100,
+            key = encryptionManager.createEcdhKeyPair(receiverID)
+        )
+        sendUnencryptedPacket(receiverID, payload)
     }
 
-    /**
-     * Handles the key exchange response from the server.
-     * This method processes the key exchange request or response and updates the session keys accordingly.
-     * @param requestPacket The key exchange payload received from the server.
-     */
     fun respondToKeyExchange(remoteID: UByte, requestPacket: SodtPackets.KeyExchangePayload) {
         // handle possible errors
         if (requestPacket.key.isEmpty()) {
@@ -150,9 +160,9 @@ open class SodtClient(
                 Log.d(TAG, "Key exchange requested by : $remoteID")
                 val responsePacket = SodtPackets.KeyExchangePayload(
                     code = 200,
-                    key = "TODO CHANGE ME")//encryptionManager.getPublicEcdhKeyAsBase64())
-                throw NotImplementedError()
-                sendEncryptedAesPacket(remoteID, responsePacket)
+                    key = encryptionManager.createEcdhKeyPair(remoteID))
+                // TODO ask for permission
+                sendUnencryptedPacket(remoteID, responsePacket)
             }
 
             200 -> {
@@ -167,8 +177,9 @@ open class SodtClient(
             }
         }
         // generate key exchange pair from dataPacket (if code was 100 or 200)
-        val aesKeyMaterial = encryptionManager.generateSessionAesKeyFromExchangeMessage(Globals.clientID, requestPacket.key)
-        encryptionManager.addSessionKey(remoteID, aesKeyMaterial)
+        encryptionManager.generateAndStoreAesSessionKeyFromKeyExchange(remoteID, requestPacket.key)
+        val sharedPhrase = encryptionManager.getSharedPhrase(remoteID, requestPacket.key)
+        Log.d(TAG, "Shared Phrase: $sharedPhrase") // TODO add to UI
     }
 
     /**
@@ -215,9 +226,7 @@ open class SodtClient(
         }
         // TODO verify signature
         Log.w(TAG, "Discovery not verified")
-        // generate key
-        val aes = encryptionManager.generateSessionAesKeyFromExchangeMessage(Globals.SERVER_ID, dataPacket.publicKey)
-        encryptionManager.addSessionKey(Globals.SERVER_ID, aes)
+        encryptionManager.generateAndStoreAesSessionKeyFromKeyExchange(Globals.SERVER_ID, dataPacket.publicKey)
 
 
         Globals.clientID = dataPacket.id
@@ -235,13 +244,7 @@ open class SodtClient(
             publicKey = encryptionManager.createEcdhKeyPair(SodtConstants.SERVER_ID),
             signature = null
         )
-        // because discovery is not encrypted prepend nonce and tag manually with zeros
-        val cryptoHeader = ByteArray(SodtConstants.TAG_SIZE + SodtConstants.NONCE_SIZE)
-        CoroutineScope(Dispatchers.Default).launch {
-            networkingClient.sendData(Globals.SERVER_ID, cryptoHeader + payload.toByteArray())
-            LogsActivity.addLog("Sent discovery message to server")
-            Log.d("SodtClient", "Send discovery message")
-        }
+        sendUnencryptedPacket(SodtConstants.SERVER_ID, payload)
     }
     fun startPinging() {
         // Stop any existing ping job before starting a new one

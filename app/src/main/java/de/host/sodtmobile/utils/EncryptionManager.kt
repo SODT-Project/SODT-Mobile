@@ -62,13 +62,6 @@ class EncryptionManager() {
         return Base64.encodeToString(publicKeyBytes!!.public.encoded, Base64.NO_WRAP) // TODO remove !! with null checks
     }
 
-    /**
-     * Adds a client session key for a specific client ID.
-     * This allows for secure communication between clients using their own session keys.
-     */
-    fun addSessionKey(remoteId: UByte, sessionKey: SecretKey) {
-        aesSessionKeys[remoteId] = sessionKey
-    }
     fun createEcdhKeyPair(remoteId: UByte): String{
         val keyPairGenerator = KeyPairGenerator.getInstance("EC")
         keyPairGenerator.initialize(ECGenParameterSpec(ecCurve), SecureRandom())
@@ -110,9 +103,10 @@ class EncryptionManager() {
     }
 
 
-    fun generateSessionAesKeyFromExchangeMessage(remoteId: UByte, otherKeyBase64: String): SecretKey {
+    fun generateAndStoreAesSessionKeyFromKeyExchange(remoteId: UByte, otherKeyBase64: String) {
         val sharedSecret = deriveSharedSecretFromBase64Key(remoteId, otherKeyBase64)
-        return deriveAesKeyFromSharedSecret(sharedSecret)
+        val aesSessionKey = deriveAesKeyFromSharedSecret(sharedSecret)
+        aesSessionKeys[remoteId] = aesSessionKey
     }
 
     fun encryptAesGcm(remoteId: UByte, baseMessage: SodtPackets.IBasePacket): ByteArray? {
@@ -144,6 +138,16 @@ class EncryptionManager() {
         return cipher.doFinal(ciphertext + tag) // cipher expects tag at the end of the message, but sodt protocol puts tag before message, so reverse it
         // TODO implement errorchecks
         return null
+    }
+
+    fun getSharedPhrase(remoteId: UByte, otherKeyBase64: String): String {
+        val sharedSecret = deriveSharedSecretFromBase64Key(remoteId, otherKeyBase64)
+        val sha256 = MessageDigest.getInstance("SHA-256")
+        val derivedKey = sha256.digest(sharedSecret) // 32-byte key
+        val keyInHex = derivedKey.joinToString("") { "%02X".format(it) }
+        val keyParts = keyInHex.chunked(2) // split into pairs of 2 characters
+        // return 0th, 4th, 8th, 16th, 31th pair with hyphens
+        return "${keyParts[0]}-${keyParts[4]}-${keyParts[8]}-${keyParts[16]}-${keyParts[31]}"
     }
 
      fun parsePemCertificate(pemString: String): X509Certificate? {
