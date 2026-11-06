@@ -1,27 +1,19 @@
 package de.host.sodtmobile.utils
 
-import android.security.keystore.KeyProperties
 import android.util.Base64
 import android.util.Log
-import de.host.sodtmobile.activities.LogsActivity
-import org.bouncycastle.asn1.ASN1Primitive
-import java.io.ByteArrayOutputStream
-import java.security.InvalidKeyException
 import java.security.KeyFactory
 import java.security.KeyPairGenerator
 import java.security.PublicKey
 import java.security.SecureRandom
-import org.bouncycastle.asn1.pkcs.RSAPublicKey
 
-import java.security.spec.RSAPublicKeySpec
-import javax.crypto.KeyGenerator
 import java.security.*
 import java.security.spec.ECGenParameterSpec
 import java.security.spec.X509EncodedKeySpec
 import javax.crypto.KeyAgreement
 import javax.crypto.SecretKey
 import javax.crypto.Cipher
-import javax.crypto.spec.IvParameterSpec
+import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
 /**
@@ -38,272 +30,45 @@ import javax.crypto.spec.SecretKeySpec
  *
  * @param serverPublicKey The server's RSA public key in PEM format, used for secure key exchange.
  */
-class EncryptionManager(serverPublicKey: String) {
-
-    /**
-     * Data class representing AES key material, including the secret key and initialization vector (IV).
-     */
-    data class AesKeyMaterial(val key: SecretKey, val iv: IvParameterSpec)
+class EncryptionManager() {
 
     private val TAG = "EncryptionManager"
     private val aesKeySize = 256 // AES-256
     private val ecCurve = "secp256r1"
-    private val aesAlgorithm = "AES/CFB8/NoPadding"
-    private val rsaAlgorithm = "RSA/ECB/PKCS1Padding"
-    private var rsaServerPublicKey: PublicKey? = null
-    private var aesServerSessionKey: AesKeyMaterial
-    private var ecdhKeyPair: KeyPair = KeyPairGenerator.getInstance("EC").apply {
-        ECGenParameterSpec(ecCurve)
-    }.generateKeyPair()
-    // store session keys and ivs for client-client communication
-    private val clientAesSessionKeys = mutableMapOf<UByte, AesKeyMaterial>()
+    private val aesAlgorithm = "AES/Gcm/NoPadding"
+    private val aesSessionKeys = mutableMapOf<UByte, SecretKey>()
+    private val ecdhSessionKeyGenerators = mutableMapOf<UByte, KeyPair>()
 
     // INFO:
     // android keystore not used because it does not support needed algorithm configurations
     // (eg. AES/CFB8/NoPadding)
 
-    init {
-        // load the server public rsa key
-        try {
-            rsaServerPublicKey = parsePkcs1RsaPublicKey(serverPublicKey)
-        } catch (error: InvalidKeyException) {
-            Log.d(TAG, "Could not parse server rsa public key")
-        }
-        // generate new client-server aes session key and iv for this instance
-        aesServerSessionKey = AesKeyMaterial(
-            generateAesSecretKey(),
-            IvParameterSpec(generateAesIv())
-        )
-    }
-    companion object{
-        /**
-         * Checks if the provided RSA public key in PEM format is valid.
-         */
-        fun isRsaPemKeyValid(pem: String): Boolean {
-            return parsePkcs1RsaPublicKey(pem) != null
-        }
-        /**
-         * Parses an RSA public key string in PEM format and returns a PublicKey object.
-         * The input string should include the BEGIN and END headers/footers.
-         *
-         * @param pem The RSA public key string in PEM format.
-         * @return A PublicKey object, or null if parsing fails.
-         */
-        private fun parsePkcs1RsaPublicKey(pem: String): PublicKey? {
-            return try {
-                val cleaned = pem
-                    .replace("-----BEGIN RSA PUBLIC KEY-----", "")
-                    .replace("-----END RSA PUBLIC KEY-----", "")
-                    .replace("\\s".toRegex(), "")
 
-                val decoded = Base64.decode(cleaned, Base64.NO_WRAP)
-
-                val asn1 = ASN1Primitive.fromByteArray(decoded)
-                val rsaKey = RSAPublicKey.getInstance(asn1)
-
-                val keySpec = RSAPublicKeySpec(rsaKey.modulus, rsaKey.publicExponent)
-
-                // Use default provider (not "BC")
-                val keyFactory = KeyFactory.getInstance("RSA")
-                keyFactory.generatePublic(keySpec)
-
-            } catch (e: Exception) {
-                e.printStackTrace()
-                null
-            }
-        }
-    }
-    /**
-     * Returns the AES client-server session key.
-     * This is a copy of the key, not the original to prevent accidental modification.
-     */
-    fun getAesServerSessionKeyAsBase64(): String {
-        return Base64.encodeToString(aesServerSessionKey.key.encoded, Base64.NO_WRAP)
-    }
-
-    fun removeClientSessionKey(clientId: UByte) {
-        clientAesSessionKeys.remove(clientId)
-    }
-
-    fun getAllConnectedClientIds(): Set<UByte> {
-        return clientAesSessionKeys.keys
+    fun removeSessionKey(clientId: UByte) {
+        aesSessionKeys.remove(clientId)
+        ecdhSessionKeyGenerators.remove(clientId)
     }
 
     fun hasClientSessionKeyFor(clientId: UByte): Boolean {
-        return clientAesSessionKeys.containsKey(clientId)
+        return aesSessionKeys.containsKey(clientId)
     }
 
-    fun getAesServerSessionIVAsBase64(): String {
-        return Base64.encodeToString(aesServerSessionKey.iv.iv, Base64.NO_WRAP)
-    }
-
-    /**
-     * Returns the public ECDH key as a Base64 encoded string.
-     * This key can be shared with other clients a secure key exchange.
-     */
-    fun getPublicEcdhKeyAsBase64(): String {
+    private fun getEcdhKeyAsBase64(keyPair: KeyPair): String {
         // Get the public key in X.509 format
-        val publicKeyBytes = ecdhKeyPair.public.encoded
-        return Base64.encodeToString(publicKeyBytes, Base64.NO_WRAP)
+        return Base64.encodeToString(keyPair.public.encoded, Base64.NO_WRAP)
     }
 
-    /**
-     * Adds a client session key for a specific client ID.
-     * This allows for secure communication between clients using their own session keys.
-     */
-    fun addClientSessionKey(clientId: UByte, sessionKey: AesKeyMaterial) {
-        clientAesSessionKeys[clientId] = sessionKey
+    fun createEcdhKeyPair(remoteId: UByte): String{
+        val keyPairGenerator = KeyPairGenerator.getInstance("EC")
+        keyPairGenerator.initialize(ECGenParameterSpec(ecCurve), SecureRandom())
+        ecdhSessionKeyGenerators[remoteId] = keyPairGenerator.generateKeyPair()
+        return getEcdhKeyAsBase64(ecdhSessionKeyGenerators[remoteId]!!) // !! is safe because it is just added above
     }
 
-    /**
-     * Generates a new random AES secret key. This key will be used as the session key.
-     */
-    private fun generateAesSecretKey(): SecretKey {
-        val keyGenerator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES)
-        keyGenerator.init(aesKeySize, SecureRandom())
-        return keyGenerator.generateKey()
-    }
-
-    /**
-     * Generates a new random Initialization Vector (IV) for AES CFB mode.
-     * The IV must be unique for each encryption.
-     */
-    private fun generateAesIv(): ByteArray {
-        val iv = ByteArray(16) // AES block size is 16 bytes (128 bits)
-        SecureRandom().nextBytes(iv)
-        return iv
-    }
-
-    /**
-     * Encrypts data using AES in CFB mode.
-     * @param plaintext The data to encrypt.
-     * @param aesKey The AES secret key (session key).
-     * @param iv The Initialization Vector.
-     * @return Encrypted data bytes, or null on error.
-     */
-    private fun encryptWithAesCfb(plaintext: ByteArray, aes: AesKeyMaterial): ByteArray? {
-        return try {
-            val cipher = Cipher.getInstance(aesAlgorithm)
-            cipher.init(Cipher.ENCRYPT_MODE, aes.key, aes.iv)
-            cipher.doFinal(plaintext)
-        } catch (e: Exception) {
-            LogsActivity.addLog("Error encrypting with AES CFB: ${e.message}")
-            Log.e(TAG, "Error encrypting with AES CFB: ${e.message}", e)
-            null
-        }
-    }
-
-    /**
-     * Decrypts data using AES in CFB mode.
-     * @param ciphertext The data to decrypt.
-     * @param aesKey The AES secret key (session key).
-     * @param iv The Initialization Vector.
-     * @return Decrypted data bytes, or null on error.
-     */
-    private fun decryptWithAesCfb(ciphertext: ByteArray, aes: AesKeyMaterial): ByteArray? {
-        return try {
-            val cipher = Cipher.getInstance(aesAlgorithm)
-            cipher.init(Cipher.DECRYPT_MODE, aes.key, aes.iv)
-            cipher.doFinal(ciphertext)
-        } catch (e: Exception) {
-            LogsActivity.addLog("Error decrypting with AES CFB: ${e.message}")
-            Log.e(TAG, "Error decrypting with AES CFB: ${e.message}", e)
-            null
-        }
-    }
-
-    /**
-     * Encrypts data using the server's AES session key and IV.
-     * This is used for communication between the client and server.
-     * @param plaintext The data to encrypt.
-     * @return Encrypted data bytes, or null on error.
-     */
-    fun encryptWithAesServer(plaintext: ByteArray): ByteArray? {
-        return encryptWithAesCfb(plaintext, aesServerSessionKey)
-    }
-
-    /**
-     * Decrypts data using the server's AES session key and IV.
-     * @param ciphertext The data to decrypt.
-     * @return Decrypted data bytes, or null on error.
-     */
-    fun decryptWithAesServer(ciphertext: ByteArray): ByteArray? {
-        return decryptWithAesCfb(ciphertext, aesServerSessionKey)
-    }
-
-    /**
-     * Encrypts data for a specific client using their session key.
-     * @param clientId The ID of the client to encrypt for.
-     * @param plaintext The data to encrypt.
-     * @return Encrypted data bytes, or null if no session key is found for the client.
-     */
-    fun encryptWithAesClient(clientId: UByte, plaintext: ByteArray): ByteArray? {
-        val sessionKey = clientAesSessionKeys[clientId] ?: run {
-            LogsActivity.addLog("encryptWithAesClient: No session key found for client ID $clientId")
-            Log.w(TAG, "encryptWithAesClient: No session key found for client ID $clientId")
-            return null
-        }
-        return encryptWithAesCfb(plaintext, sessionKey)
-    }
-
-    /**
-     * Decrypts data for a specific client using their session key.
-     * @param clientId The ID of the client to decrypt for.
-     * @param ciphertext The data to decrypt.
-     * @return Decrypted data bytes, or null if no session key is found for the client.
-     */
-    fun decryptWithAesClient(clientId: UByte, ciphertext: ByteArray): ByteArray? {
-        val sessionKey = clientAesSessionKeys[clientId] ?: run {
-            LogsActivity.addLog("encryptWithAesClient: No session key found for client ID $clientId")
-            Log.w(TAG, "decryptWithAesClient: No session key found for client ID $clientId")
-            return null
-        }
-        return decryptWithAesCfb(ciphertext, sessionKey)
-    }
-
-    /**
-     * Encrypts data using RSA with the server's public key.
-     * The data is split into chunks to fit within the RSA block size.
-     * @param data The data to encrypt.
-     * @return Encrypted data bytes, or null on error.
-     */
-    fun encryptRsa(data: ByteArray): ByteArray? {
-        val publicKey = rsaServerPublicKey ?: run {
-            LogsActivity.addLog("encryptRsa: Public key is null")
-            Log.w(TAG, "encryptRsa: Public key is null")
-            return null
-        }
-
-        return try {
-            val cipher = Cipher.getInstance(rsaAlgorithm)
-            cipher.init(Cipher.ENCRYPT_MODE, publicKey)
-
-            val maxBlockSize = 501 // For 4096-bit key with PKCS1Padding
-            val outputStream = ByteArrayOutputStream()
-
-            var offset = 0
-            while (offset < data.size) {
-                val chunkSize = minOf(maxBlockSize, data.size - offset)
-                val chunk = cipher.doFinal(data, offset, chunkSize)
-                outputStream.write(chunk)
-                offset += chunkSize
-            }
-
-            outputStream.toByteArray()
-        } catch (e: Exception) {
-            LogsActivity.addLog("RSA encryption failed: ${e.message}")
-            Log.e(TAG, "RSA encryption failed: ${e.message}", e)
-            null
-        }
-    }
-
-    /**
-     * Derives a shared secret with the other party's public key.
-     * This is used in ECDH key exchange to create a shared secret for symmetric encryption.
-     * @param base64otherPublicKey The other party's public key in Base64 format.
-     * @return The derived shared secret as a byte array.
-     */
-    private fun deriveSharedSecretFromBase64Key(base64otherPublicKey: String): ByteArray {
+    private fun deriveSharedSecretFromBase64Key(remoteId: UByte, base64otherPublicKey: String): ByteArray {
+        // get matching key pair from generator
+        val ecdhKeyPair = ecdhSessionKeyGenerators[remoteId]
+        requireNotNull(ecdhKeyPair){"ECDH key pair not found for client ID: $remoteId."}
         // get otherPublicKey keyBytes
         val keyBytes = Base64.decode(base64otherPublicKey, Base64.NO_WRAP)
         // Convert to ECDH public key
@@ -326,25 +91,142 @@ class EncryptionManager(serverPublicKey: String) {
      * @param sharedSecret The raw shared secret byte array.
      * @return AesKeyMaterial containing the derived AES key and IV.
      */
-    private fun deriveAesKeyAndIvFromSharedSecret(sharedSecret: ByteArray): AesKeyMaterial {
+    private fun deriveAesKeyFromSharedSecret(sharedSecret: ByteArray): SecretKey {
         val sha256 = MessageDigest.getInstance("SHA-256")
         val derivedKey = sha256.digest(sharedSecret) // 32-byte key
 
-        // Derive IV by hashing derivedKey and using the first 16 bytes
-        val ivBytes = sha256.digest(derivedKey).sliceArray(0..15)
-
         val secretKey = SecretKeySpec(derivedKey, "AES")
-        return AesKeyMaterial(secretKey, IvParameterSpec(ivBytes))
+        return secretKey
     }
 
-    /**
-     * Generates an AES key from a KeyExchangePayload message.
-     * This is used to derive the session key for secure communication between clients.
-     * @param dataPacket The otherParty KeyExchangePayload containing the Base64 encoded key.
-     * @return AesKeyMaterial containing the derived AES key and IV.
-     */
-    fun generateSessionAesKeyFromExchangeMessage(dataPacket: SodtPackets.KeyExchangePayload): AesKeyMaterial {
-        val sharedSecret = deriveSharedSecretFromBase64Key(dataPacket.key)
-        return deriveAesKeyAndIvFromSharedSecret(sharedSecret)
+
+    fun generateAndStoreAesSessionKeyFromKeyExchange(remoteId: UByte, otherKeyBase64: String) {
+        val sharedSecret = deriveSharedSecretFromBase64Key(remoteId, otherKeyBase64)
+        val aesSessionKey = deriveAesKeyFromSharedSecret(sharedSecret)
+        aesSessionKeys[remoteId] = aesSessionKey
     }
+
+    fun encryptAesGcm(remoteId: UByte, baseMessage: SodtPackets.IBasePacket): ByteArray? {
+        // prepare
+        val toEncrypt = baseMessage.toByteArray()
+        val aes = aesSessionKeys[remoteId]
+        requireNotNull(aes){"AES session key not found for client ID: $remoteId."}
+        val cipher = Cipher.getInstance(aesAlgorithm)
+        cipher.init(Cipher.ENCRYPT_MODE, aes)
+        // encrypt
+        val nonce = cipher.iv
+        val encrypted = cipher.doFinal(toEncrypt)
+        val tag = encrypted.slice(encrypted.size - SodtConstants.TAG_SIZE until encrypted.size).toByteArray()
+        // remove tag, because in sodt protocol its at the beginning of the message
+        val encryptedWithoutTag = encrypted.slice(0 until encrypted.size - SodtConstants.TAG_SIZE)
+        return nonce + tag + encryptedWithoutTag
+    }
+
+    fun decryptAesGcm(clientId: UByte, receivedData: ByteArray): ByteArray? {
+        require(receivedData.size == SodtConstants.FULL_MESSAGE_SIZE) {
+            "Data size must be exactly ${SodtConstants.FULL_MESSAGE_SIZE} bytes, but was ${receivedData.size}"
+        }
+
+        // prepare decryption and get relevant data
+        val ciphertext = receivedData.slice(SodtConstants.HEADER_SIZE_WITHOUT_CONTENT_LENGTH until receivedData.size).toByteArray()
+        val tag = receivedData.slice((SodtConstants.ID_SIZE + SodtConstants.NONCE_SIZE) until (SodtConstants.ID_SIZE + SodtConstants.NONCE_SIZE + SodtConstants.TAG_SIZE)).toByteArray()
+        val nonce = receivedData.slice(SodtConstants.ID_SIZE until (SodtConstants.ID_SIZE + SodtConstants.NONCE_SIZE)).toByteArray()
+        val cipher = Cipher.getInstance(aesAlgorithm)
+        // decrypt
+        try {
+            val aes = aesSessionKeys[clientId]
+            cipher.init(Cipher.DECRYPT_MODE, aes, GCMParameterSpec(128, nonce))
+            // cipher expects tag at the end of the message, but sodt protocol puts tag before message, so reverse it
+            return cipher.doFinal(ciphertext + tag)
+        }
+        catch (e: Exception) {
+            Log.e(TAG, "Decryption failed for client ID: $clientId", e)
+        }
+        return null
+    }
+
+    fun getSharedPhrase(remoteId: UByte, keyExchangePacket: SodtPackets.KeyExchangePayload): String {
+        val sharedSecret = deriveSharedSecretFromBase64Key(remoteId, keyExchangePacket.key)
+        val sha256 = MessageDigest.getInstance("SHA-256")
+        val derivedKey = sha256.digest(sharedSecret) // 32-byte key
+        val keyInHex = derivedKey.joinToString("") { "%02X".format(it) }
+        val keyParts = keyInHex.chunked(2) // split into pairs of 2 characters
+        // return 0th, 4th, 8th, 16th, 31th pair with hyphens
+        return "${keyParts[0]}-${keyParts[4]}-${keyParts[8]}-${keyParts[16]}-${keyParts[31]}"
+    }
+
+     fun parsePemPublicKey(pemString: String): PublicKey? {
+         val publicKeyPem = pemString
+             .replace("-----BEGIN PUBLIC KEY-----", "")
+             .replace("-----END PUBLIC KEY-----", "")
+             .replace("\\s".toRegex(), "") // Removes \n, \r, and spaces
+
+         // 2. Base64 decode the resulting string
+         val encoded = Base64.decode(publicKeyPem, Base64.DEFAULT)
+
+         // 3. Create a KeySpec and generate the Public Key using KeyFactory
+         val keySpec = X509EncodedKeySpec(encoded)
+         // Note: Use "EC" because your C# code uses ECDsa.Create
+         val keyFactory = KeyFactory.getInstance("EC")
+
+         return keyFactory.generatePublic(keySpec)
+    }
+
+    fun verifySignature(certificate: String, dataPacket: SodtPackets.DiscoveryPayload): Boolean {
+        // prepare certificate
+        val publicKey = parsePemPublicKey(certificate)
+        // prepare signature verification
+        val localEcdhKey = ecdhSessionKeyGenerators[SodtConstants.SERVER_ID]!!.public.encoded
+        val remoteEcdhKey = Base64.decode(dataPacket.publicKey, Base64.NO_WRAP)
+        val toVerify = localEcdhKey + remoteEcdhKey + dataPacket.id.toByte()
+
+        val signature = Signature.getInstance("SHA256withECDSA")
+        signature.initVerify(publicKey)
+        signature.update(toVerify)
+
+        return try {
+            val signatureBytes = Base64.decode(dataPacket.signature, Base64.DEFAULT)
+            val isValid = signature.verify(ieeeP1363ToDer(signatureBytes))
+            if (!isValid) {
+                Log.e(TAG, "Signature verification failed")
+            }
+            isValid
+        } catch (e: Exception) {
+            Log.e(TAG, "Error during signature verification", e)
+            false
+        }
+    }
+
+    // AI code to convert IEEE P1363 signature to DER format for ECDSA verification
+    private fun ieeeP1363ToDer(ieeeSignature: ByteArray): ByteArray {
+        require(ieeeSignature.size % 2 == 0) { "Ungültige Signatur-Länge" }
+        val halfLength = ieeeSignature.size / 2
+
+        val r = ieeeSignature.copyOfRange(0, halfLength)
+        val s = ieeeSignature.copyOfRange(halfLength, ieeeSignature.size)
+
+        fun encodeDerInteger(bytes: ByteArray): ByteArray {
+            // Führende 0x00 Bytes entfernen
+            var startIdx = 0
+            while (startIdx < bytes.size - 1 && bytes[startIdx] == 0.toByte()) {
+                startIdx++
+            }
+            val trimmed = bytes.copyOfRange(startIdx, bytes.size)
+
+            // Sign-Bit Handling: Wenn MSB >= 0x80 ist, ein 0x00 Byte voranstellen
+            val needsZeroPrefix = (trimmed[0].toInt() and 0x80) != 0
+            val payload = if (needsZeroPrefix) byteArrayOf(0) + trimmed else trimmed
+
+            // 0x02 = INTEGER Tag
+            return byteArrayOf(0x02.toByte(), payload.size.toByte()) + payload
+        }
+
+        val rDer = encodeDerInteger(r)
+        val sDer = encodeDerInteger(s)
+        val sequenceBody = rDer + sDer
+
+        // 0x30 = SEQUENCE Tag
+        return byteArrayOf(0x30.toByte(), sequenceBody.size.toByte()) + sequenceBody
+    }
+
 }

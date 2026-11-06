@@ -1,6 +1,7 @@
 package de.host.sodtmobile.utils
 
 import com.google.gson.Gson
+import org.bouncycastle.asn1.ocsp.Signature
 import java.util.UUID
 
 /** * This object contains all packets used in the SODT protocol.
@@ -27,13 +28,6 @@ class SodtPackets {
          */
         fun toJson(): String
 
-        /**
-         * Converts the packet to a byte array with the size prepended as a UShort.
-         * This method is used to prepare the packet for transmission over the network.
-         * This method does not add the sourceID and targetID.
-         * This method does not pad the byte array to 4096 bytes. (Done in NetworkingClient.kt)
-         * @return ByteArray containing the size as a UShort followed by the JSON representation of the packet. Like [sizeByte1, sizeByte2, jsonByte1, jsonByte2, ...]
-         */
         fun toByteArray(): ByteArray{
             // get json and size
             val json = this.toJson()
@@ -44,8 +38,9 @@ class SodtPackets {
                 (size.toInt() and 0xFF).toByte(),
                 (size.toInt() shr 8 and 0xFF).toByte()
             )
+            val padding = ByteArray(SodtConstants.MESSAGE_WITH_CONTENT_SIZE - sizeBytes.size - json.toByteArray(Charsets.UTF_8).size) { (0..255).random().toByte() }
             // return
-            return sizeBytes + json.toByteArray(Charsets.UTF_8)
+            return sizeBytes + json.toByteArray(Charsets.UTF_8) + padding
         }
     }
 
@@ -54,8 +49,8 @@ class SodtPackets {
         override val type: String = "discovery",
         override val code: Int,
         override val uuid: Int = UUID.randomUUID().hashCode(),
-        val key: String?,
-        val iv: String?
+        val publicKey: String,
+        val signature: String?
     ) : IBasePacket {
         override fun toJson(): String {
             return Gson().toJson(this)
@@ -78,9 +73,6 @@ class SodtPackets {
         override val code: Int,
         override val uuid: Int = UUID.randomUUID().hashCode(),
         val key: String,
-        val sessionHash: String? = null, // sessionHash won't be implemented in the first version
-        val sourceId: UByte,
-        val targetId: UByte
     ) : IBasePacket {
         override fun toJson(): String {
             return Gson().toJson(this)
@@ -103,8 +95,7 @@ class SodtPackets {
         override val uuid: Int = UUID.randomUUID().hashCode(),
         val filename: String,
         val filesize: Long, // DO NOT RENAME filesize, it must have the same the name like in the json file
-        val sourceId: UByte,
-        val compress: Boolean = false // compress is not implemented in the mobile version
+        val filehash: String // DO NOT RENAME filehash, ...
     ) : IBasePacket {
         override fun toJson(): String {
             return Gson().toJson(this)
@@ -117,6 +108,16 @@ class SodtPackets {
         override val uuid: Int = UUID.randomUUID().hashCode(),
         val data: String,
         val position: Long
+    ) : IBasePacket {
+        override fun toJson(): String {
+            return Gson().toJson(this)
+        }
+    }
+
+    data class PingPong(
+        override val type: String = "pingpong",
+        override val code: Int,
+        override val uuid: Int = UUID.randomUUID().hashCode(),
     ) : IBasePacket {
         override fun toJson(): String {
             return Gson().toJson(this)

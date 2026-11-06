@@ -59,10 +59,10 @@ class PreferencesActivity : AppCompatActivity() {
         }
         // check if public key is in valid PEM format
         val publicKey = manager["preference_server_public_key"]!!.toString()
-        if (!EncryptionManager.isRsaPemKeyValid(publicKey)) {
+        /*if (!EncryptionManager.isValidPublicKey(publicKey)) {
             Toast.makeText(this, "Public key must be a valid PEM formatted RSA public key", Toast.LENGTH_SHORT).show()
             return false
-        }
+        }*/ // TODO implement public key validation
         return true
     }
 }
