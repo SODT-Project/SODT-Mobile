@@ -16,7 +16,6 @@ import javax.crypto.KeyAgreement
 import javax.crypto.SecretKey
 import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
-import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
 /**
@@ -116,21 +115,19 @@ class EncryptionManager() {
         return deriveAesKeyFromSharedSecret(sharedSecret)
     }
 
-    fun encryptAesGcm(clientId: UByte, baseMessage: SodtPackets.IBasePacket): ByteArray? {
+    fun encryptAesGcm(remoteId: UByte, baseMessage: SodtPackets.IBasePacket): ByteArray? {
 
         // prepare
         val toEncrypt = baseMessage.toByteArray()
-        val aes = aesSessionKeys[clientId]
+        val aes = aesSessionKeys[remoteId]
         val cipher = Cipher.getInstance(aesAlgorithm)
         cipher.init(Cipher.ENCRYPT_MODE, aes)
         // encrypt
         val nonce = cipher.iv
         val encrypted = cipher.doFinal(toEncrypt)
         val tag = encrypted.slice(encrypted.size - SodtConstants.TAG_SIZE until encrypted.size).toByteArray()
-
-        return nonce + tag + encrypted.slice(0 until encrypted.size - SodtConstants.TAG_SIZE) // remove tag, because in sodt protocol its at the beginning of the message
-        // TODO implement
-        return null
+        val encryptedWithoutTag = encrypted.slice(0 until encrypted.size - SodtConstants.TAG_SIZE) // remove tag, because in sodt protocol its at the beginning of the message
+        return nonce + tag + encryptedWithoutTag
     }
 
     fun decryptAesGcm(clientId: UByte, receivedData: ByteArray): ByteArray? {

@@ -12,12 +12,16 @@ import android.util.Log
 import de.host.sodtmobile.activities.LogsActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.FileOutputStream
 import java.nio.ByteBuffer
 import java.security.MessageDigest
+import kotlin.text.get
 
 /** * SodtClient is the main class for the Sodt client.
  * It handles the connection to the server, sending and receiving packets, and file transfers.
@@ -36,7 +40,7 @@ open class SodtClient(
 
 
     private var encryptionManager: EncryptionManager = EncryptionManager()
-
+    private var pingJob: Job? = null
     private var sodtReceiver: SodtReceiver =
         SodtReceiver(encryptionManager, this) // not ideal logic but it works
     private var networkingClient: NetworkingClient =
@@ -86,15 +90,16 @@ open class SodtClient(
      * @param dataPaket The data packet to be sent.
      */
     private fun sendEncryptedAesPacket(receiverID: UByte, dataPaket: SodtPackets.IBasePacket) {
-        return; // TODO remove debug return
         CoroutineScope(Dispatchers.Default).launch {
             val encryptedPacket = encryptionManager.encryptAesGcm(receiverID, dataPaket)
+
             if (encryptedPacket == null) {
                 LogsActivity.addLog("Failed to encrypt packet for client $receiverID")
                 Log.e(TAG, "Failed to encrypt packet for client $receiverID")
                 return@launch
             }
-            networkingClient.sendData(receiverID, encryptedPacket!!) // TODO remove !!
+            Log.d(TAG, "Sending packet to client $receiverID")
+            networkingClient.sendData(receiverID, encryptedPacket)
         }
     }
 
@@ -103,6 +108,7 @@ open class SodtClient(
      * It should be called when the user wants to disconnect from the server.
      */
     fun disconnect() {
+        pingJob?.cancel()
         // disconnect from server
         // send disconnect packet
         val payload = SodtPackets.DisconnectPayload(
@@ -217,6 +223,7 @@ open class SodtClient(
         Globals.clientID = dataPacket.id
         LogsActivity.addLog("Your client ID is ${dataPacket.id}")
         Log.d(TAG, "Your ID: ${dataPacket.id}")
+        startPinging()
     }
 
 
@@ -236,7 +243,29 @@ open class SodtClient(
             Log.d("SodtClient", "Send discovery message")
         }
     }
+    fun startPinging() {
+        // Stop any existing ping job before starting a new one
+        pingJob?.cancel()
+        // "Fire and forget" - launches a new coroutine
+        pingJob = CoroutineScope(Dispatchers.Default).launch {
+            // Equivalent to while(client.Connected)
+            // isActive ensures the loop stops if the coroutine is cancelled
 
+            while (isActive) {
+                delay(3000) // Non-blocking delay (Equivalent to Task.Delay)
+                if (!isInitiated) {
+                    continue
+                }
+
+                try {
+                    sendEncryptedAesPacket(SodtConstants.SERVER_ID, SodtPackets.PingPong(code = 100))
+                    Log.d("NetworkingClient", "Sent Ping to server.")
+                } catch (e: Exception) {
+                    Log.e("NetworkingClient", "Failed to send ping", e)
+                }
+            }
+        }
+    }
     /**
      * Calculates the SHA-256 hash of a file provided via Uri.
      * Returns the hex string representation of the hash.

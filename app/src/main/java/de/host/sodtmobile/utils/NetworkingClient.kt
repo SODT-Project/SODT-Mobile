@@ -26,7 +26,6 @@ class NetworkingClient(private val receivedEventListener: IDataReceivedEventList
     private val clientScope = CoroutineScope(Dispatchers.IO) // Scope for network operations
 
     private val TAG = "NetworkingClient"
-    private val packetSize = 4096
     private val secureRandom = SecureRandom()
 
     val isConnected: Boolean
@@ -53,19 +52,6 @@ class NetworkingClient(private val receivedEventListener: IDataReceivedEventList
         }
     }
 
-    /**
-     * Pads the data to 4096 bytes by appending random bytes.
-     * If the data is already 4096 bytes, it returns the data as is.
-     * If the data is larger than 4096 bytes, it throws an exception.
-     */
-    private fun padTo4096Bytes(data: ByteArray): ByteArray {
-        require(data.size <= packetSize) { "Data is too large to pad to 4096 bytes" }
-
-        val padded = ByteArray(packetSize - data.size)
-        secureRandom.nextBytes(padded)
-        return data + padded
-    }
-
     private fun prependSourceIdAndTargetId(byte1: UByte, byte2: UByte, data: ByteArray): ByteArray {
         val prefix = byteArrayOf(byte1.toByte(), byte2.toByte())
         return prefix + data
@@ -81,8 +67,11 @@ class NetworkingClient(private val receivedEventListener: IDataReceivedEventList
         }
         return@withContext try {
             val dataWithIds = prependSourceIdAndTargetId(targetId, Globals.clientID, data)
-            outputStream?.write(padTo4096Bytes(dataWithIds))
+            require(dataWithIds.size == SodtConstants.FULL_MESSAGE_SIZE) { "Data size must be exactly ${SodtConstants.FULL_MESSAGE_SIZE} bytes, but was ${dataWithIds.size}" }
+            outputStream?.write(dataWithIds)
             outputStream?.flush() // Important to flush the stream to ensure data is sent
+            LogsActivity.addLog("Sent data to server: ${dataWithIds.slice(0 until 10)}")
+            Log.d(TAG, "Sent data to server: ${dataWithIds.slice(0 until 10)}")
             true
         } catch (e: IOException) {
             Log.e(TAG, "Error sending data: ${e.message}")
@@ -98,7 +87,7 @@ class NetworkingClient(private val receivedEventListener: IDataReceivedEventList
     private fun startReceiving() {
         receiveJob?.cancel()
         receiveJob = clientScope.launch(Dispatchers.IO) {
-            val buffer = ByteArray(packetSize)
+            val buffer = ByteArray(SodtConstants.FULL_MESSAGE_SIZE)
             val accumulated = mutableListOf<Byte>()
 
             while (isActive && socket?.isConnected == true && inputStream != null) {
@@ -109,10 +98,10 @@ class NetworkingClient(private val receivedEventListener: IDataReceivedEventList
                         accumulated.addAll(buffer.take(bytesRead))
 
                         // Try to extract complete messages if full messages are available
-                        while (accumulated.size >= packetSize) {
+                        while (accumulated.size >= SodtConstants.FULL_MESSAGE_SIZE) {
 
                             // Check if full message is available
-                            val encryptedDataPacket = accumulated.subList(0, packetSize).toByteArray()
+                            val encryptedDataPacket = accumulated.subList(0, SodtConstants.FULL_MESSAGE_SIZE).toByteArray()
                             CoroutineScope(Dispatchers.Default).launch {
                                 receivedEventListener.onDataReceived(encryptedDataPacket)
                             }

@@ -28,13 +28,6 @@ class SodtPackets {
          */
         fun toJson(): String
 
-        /**
-         * Converts the packet to a byte array with the size prepended as a UShort.
-         * This method is used to prepare the packet for transmission over the network.
-         * This method does not add the sourceID and targetID.
-         * This method does not pad the byte array to 4096 bytes. (Done in NetworkingClient.kt)
-         * @return ByteArray containing the size as a UShort followed by the JSON representation of the packet. Like [sizeByte1, sizeByte2, jsonByte1, jsonByte2, ...]
-         */
         fun toByteArray(): ByteArray{
             // get json and size
             val json = this.toJson()
@@ -45,8 +38,9 @@ class SodtPackets {
                 (size.toInt() and 0xFF).toByte(),
                 (size.toInt() shr 8 and 0xFF).toByte()
             )
+            val padding = ByteArray(SodtConstants.MESSAGE_WITH_CONTENT_SIZE - sizeBytes.size - json.toByteArray(Charsets.UTF_8).size) { (0..255).random().toByte() }
             // return
-            return sizeBytes + json.toByteArray(Charsets.UTF_8)
+            return sizeBytes + json.toByteArray(Charsets.UTF_8) + padding
         }
     }
 
