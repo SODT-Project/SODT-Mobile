@@ -34,7 +34,7 @@ import kotlin.text.get
 open class SodtClient(
     serverAddress: String,
     serverPort: Int,
-    encryptionKey: String,
+    private val serverCertificate: String,
     private val contentResolver: ContentResolver
 ) {
 
@@ -244,8 +244,13 @@ open class SodtClient(
             disconnect()
         }
 
-        // TODO verify signature
-        Log.w(TAG, "Discovery not verified")
+        if (encryptionManager.verifySignature(serverCertificate, dataPacket)) {
+            LogsActivity.addLog("Discovery verified")
+            Log.d(TAG, "Discovery verified")
+        } else {
+            LogsActivity.addLog("Discovery not verified") // TODO add to UI
+            Log.w(TAG, "Discovery not verified")
+        }
         encryptionManager.generateAndStoreAesSessionKeyFromKeyExchange(Globals.SERVER_ID, dataPacket.publicKey)
 
 

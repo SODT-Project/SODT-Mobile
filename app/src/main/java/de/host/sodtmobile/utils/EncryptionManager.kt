@@ -8,8 +8,6 @@ import java.security.PublicKey
 import java.security.SecureRandom
 
 import java.security.*
-import java.security.cert.CertificateFactory
-import java.security.cert.X509Certificate
 import java.security.spec.ECGenParameterSpec
 import java.security.spec.X509EncodedKeySpec
 import javax.crypto.KeyAgreement
@@ -157,16 +155,78 @@ class EncryptionManager() {
         return "${keyParts[0]}-${keyParts[4]}-${keyParts[8]}-${keyParts[16]}-${keyParts[31]}"
     }
 
-     fun parsePemCertificate(pemString: String): X509Certificate? {
+     fun parsePemPublicKey(pemString: String): PublicKey? {
+         val publicKeyPem = pemString
+             .replace("-----BEGIN PUBLIC KEY-----", "")
+             .replace("-----END PUBLIC KEY-----", "")
+             .replace("\\s".toRegex(), "") // Removes \n, \r, and spaces
+
+         // 2. Base64 decode the resulting string
+         val encoded = Base64.decode(publicKeyPem, Base64.DEFAULT)
+
+         // 3. Create a KeySpec and generate the Public Key using KeyFactory
+         val keySpec = X509EncodedKeySpec(encoded)
+         // Note: Use "EC" because your C# code uses ECDsa.Create
+         val keyFactory = KeyFactory.getInstance("EC")
+
+         return keyFactory.generatePublic(keySpec)
+    }
+
+    fun verifySignature(certificate: String, dataPacket: SodtPackets.DiscoveryPayload): Boolean {
+        // prepare certificate
+        val publicKey = parsePemPublicKey(certificate)
+        // prepare signature verification
+        val localEcdhKey = ecdhSessionKeyGenerators[SodtConstants.SERVER_ID]!!.public.encoded
+        val remoteEcdhKey = Base64.decode(dataPacket.publicKey, Base64.NO_WRAP)
+        val toVerify = localEcdhKey + remoteEcdhKey + dataPacket.id.toByte()
+
+        val signature = Signature.getInstance("SHA256withECDSA")
+        signature.initVerify(publicKey)
+        signature.update(toVerify)
+
         return try {
-            val factory = CertificateFactory.getInstance("X.509")
-            // Convert the string to an InputStream
-            val inputStream = pemString.byteInputStream()
-            factory.generateCertificate(inputStream) as X509Certificate
+            val signatureBytes = Base64.decode(dataPacket.signature, Base64.DEFAULT)
+            val isValid = signature.verify(ieeeP1363ToDer(signatureBytes))
+            if (!isValid) {
+                Log.e(TAG, "Signature verification failed")
+            }
+            isValid
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse PEM certificate", e)
-            null
+            Log.e(TAG, "Error during signature verification", e)
+            false
         }
+    }
+
+    // AI code to convert IEEE P1363 signature to DER format for ECDSA verification
+    private fun ieeeP1363ToDer(ieeeSignature: ByteArray): ByteArray {
+        require(ieeeSignature.size % 2 == 0) { "Ungültige Signatur-Länge" }
+        val halfLength = ieeeSignature.size / 2
+
+        val r = ieeeSignature.copyOfRange(0, halfLength)
+        val s = ieeeSignature.copyOfRange(halfLength, ieeeSignature.size)
+
+        fun encodeDerInteger(bytes: ByteArray): ByteArray {
+            // Führende 0x00 Bytes entfernen
+            var startIdx = 0
+            while (startIdx < bytes.size - 1 && bytes[startIdx] == 0.toByte()) {
+                startIdx++
+            }
+            val trimmed = bytes.copyOfRange(startIdx, bytes.size)
+
+            // Sign-Bit Handling: Wenn MSB >= 0x80 ist, ein 0x00 Byte voranstellen
+            val needsZeroPrefix = (trimmed[0].toInt() and 0x80) != 0
+            val payload = if (needsZeroPrefix) byteArrayOf(0) + trimmed else trimmed
+
+            // 0x02 = INTEGER Tag
+            return byteArrayOf(0x02.toByte(), payload.size.toByte()) + payload
+        }
+
+        val rDer = encodeDerInteger(r)
+        val sDer = encodeDerInteger(s)
+        val sequenceBody = rDer + sDer
+
+        // 0x30 = SEQUENCE Tag
+        return byteArrayOf(0x30.toByte(), sequenceBody.size.toByte()) + sequenceBody
     }
 
 }
