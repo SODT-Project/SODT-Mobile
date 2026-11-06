@@ -197,6 +197,11 @@ class EncryptionManager() {
         }
     }
 
+    fun close(){
+        aesSessionKeys.clear()
+        ecdhSessionKeyGenerators.clear()
+    }
+
     // AI code to convert IEEE P1363 signature to DER format for ECDSA verification
     private fun ieeeP1363ToDer(ieeeSignature: ByteArray): ByteArray {
         require(ieeeSignature.size % 2 == 0) { "Ungültige Signatur-Länge" }

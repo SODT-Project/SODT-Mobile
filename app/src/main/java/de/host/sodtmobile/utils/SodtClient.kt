@@ -124,7 +124,11 @@ open class SodtClient(
         sendEncryptedAesPacket(Globals.SERVER_ID, payload) // TODO error check
 
         CoroutineScope(Dispatchers.Default).launch {
+            delay(100) // wait for the packet to be sent
             networkingClient.close()
+            encryptionManager.close()
+            connectedClients.clear()
+            isInitiated = false
             LogsActivity.addLog("Disconnected from server")
             Log.d(TAG, "Disconnected from server")
         }

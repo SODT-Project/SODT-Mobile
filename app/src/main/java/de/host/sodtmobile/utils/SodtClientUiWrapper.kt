@@ -10,6 +10,7 @@ import de.host.sodtmobile.elements.TransferElement
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** * SodtClientUiWrapper is a wrapper around the SodtClient that provides additional functionality for the UI.
  * It handles the client list and transfer list, and updates the UI accordingly.
@@ -84,7 +85,6 @@ class SodtClientUiWrapper(
             200 -> {/*Do nothing on ui level*/}
             else -> {
                 LogsActivity.addLog("File transfer request for ${dataPacket.filename} failed with code: ${dataPacket.code}")
-                Toast.makeText(context, "File transfer request for ${dataPacket.filename} failed. Code: ${dataPacket.code}", Toast.LENGTH_SHORT).show()
             }
         }
     }
