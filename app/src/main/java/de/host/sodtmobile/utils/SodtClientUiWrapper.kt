@@ -139,7 +139,7 @@ class SodtClientUiWrapper(
         }
     }
 
-    override fun sendFile(targetId: UByte, uuid: Int){
+    public override fun sendFile(targetId: UByte, uuid: Int){
         CoroutineScope(Dispatchers.Main).launch {
             Toast.makeText(context, "Sending file (uuid: $uuid) to $targetId", Toast.LENGTH_SHORT).show()
         }

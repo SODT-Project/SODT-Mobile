@@ -120,7 +120,9 @@ open class SodtClient(
         val payload = SodtPackets.DisconnectPayload(
             code = 100,
         )
-        sendEncryptedAesPacket(Globals.SERVER_ID, payload) // TODO error check
+        if (encryptionManager.hasClientSessionKeyFor(Globals.SERVER_ID)) {
+            sendEncryptedAesPacket(Globals.SERVER_ID, payload)
+        }
 
         CoroutineScope(Dispatchers.Default).launch {
             delay(100) // wait for the packet to be sent
@@ -240,10 +242,12 @@ open class SodtClient(
         if (dataPacket.id.toInt() == 0 || dataPacket.signature == null) {
             LogsActivity.addLog("Illegal Discovery response received.")
             disconnect()
+            return
         }
         if (dataPacket.code >= 300) {
             LogsActivity.addLog("Discovery response failed with code ${dataPacket.code}")
             disconnect()
+            return
         }
 
         if (encryptionManager.verifySignature(serverCertificate, dataPacket)) {
@@ -480,7 +484,13 @@ open class SodtClient(
                 return null
             }
 
-        val pfd = contentResolver.openFileDescriptor(uri, "rw")
+        val pfd = try {
+            contentResolver.openFileDescriptor(uri, "rw")
+        } catch (e: Exception) {
+            LogsActivity.addLog("Failed to open file descriptor: ${e.message}")
+            Log.e(TAG, "Failed to open file descriptor", e)
+            return null
+        }
 
         // fill with dummy data to reserve space
         pfd?.fileDescriptor?.let { fd ->
@@ -501,7 +511,13 @@ open class SodtClient(
         contentValues.put(MediaStore.Downloads.IS_PENDING, 0)
         contentResolver.update(uri, contentValues, null, null)
 
-        return contentResolver.openFileDescriptor(uri, "rw")
+        return try {
+            contentResolver.openFileDescriptor(uri, "rw")
+        } catch (e: Exception) {
+            LogsActivity.addLog("Failed to reopen file descriptor: ${e.message}")
+            Log.e(TAG, "Failed to reopen file descriptor", e)
+            null
+        }
     }
 
     /** * Detects the MIME type of a file based on its extension.
