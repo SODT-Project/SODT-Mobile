@@ -1,6 +1,6 @@
 <resources>
     <!-- string values for cross referenced strings -->
-    <string name="app_name">SodtMobile</string>
+    <string name="app_name">SODT Mobile</string>
     <string name="preferences">Preferences</string>
     <string name="logs">Logs</string>
     <!-- string values for preferences -->
@@ -13,7 +13,7 @@
     <string name="connect">Connect</string>
     <string name="selected_server">Server: %1$s</string>
     <string name="selected_port">Port: %1$s</string>
-    <string name="p2p_file_sharing">P2P Encrypted File Sharing</string>
+    <string name="p2p_file_sharing">Secure Online Data Transfer</string>
     <string name="relay_configuration">RELAY CONFIGURATION</string>
     <string name="main_hint">Configure relay host and keys via top-right menu</string>
     <!-- string values for connected activity -->
@@ -26,5 +26,5 @@
     <!-- string values for logs -->
     <string name="close">Close</string>
     <string name="clear">Clear</string>
-    <string name="logs_subtitle">Real-time network events and diagnostics</string>
+    <string name="logs_subtitle">Network events and diagnostics</string>
 </resources>
