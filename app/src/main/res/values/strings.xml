@@ -8,16 +8,23 @@
     <string name="preference_server_port">Server Port</string>
     <string name="preference_server_public_key">Server Public Key</string>
     <string name="submit_button">Submit</string>
+    <string name="preferences_subtitle">Configure relay server connection and security keys</string>
     <!-- string values for main activity -->
     <string name="connect">Connect</string>
     <string name="selected_server">Server: %1$s</string>
     <string name="selected_port">Port: %1$s</string>
+    <string name="p2p_file_sharing">P2P Encrypted File Sharing</string>
+    <string name="relay_configuration">RELAY CONFIGURATION</string>
+    <string name="main_hint">Configure relay host and keys via top-right menu</string>
     <!-- string values for connected activity -->
-    <string name="client_list">Client List (Click to Select)</string>
+    <string name="client_list">Available Peers (Tap to Select)</string>
     <string name="current_transfers">Incoming Transfers</string>
     <string name="select_file">Select File and Send To: %1$s</string>
     <string name="disconnect">Disconnect</string>
+    <string name="connected_session">Connected Session</string>
+    <string name="connected_subtitle">Select a peer to initiate direct file transfer</string>
     <!-- string values for logs -->
     <string name="close">Close</string>
     <string name="clear">Clear</string>
+    <string name="logs_subtitle">Real-time network events and diagnostics</string>
 </resources>
