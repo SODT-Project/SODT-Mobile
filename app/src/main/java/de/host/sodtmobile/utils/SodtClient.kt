@@ -290,7 +290,6 @@ open class SodtClient(
 
                 try {
                     sendEncryptedAesPacket(SodtConstants.SERVER_ID, SodtPackets.PingPong(code = 100))
-                    Log.d("NetworkingClient", "Sent Ping to server.")
                 } catch (e: Exception) {
                     Log.e("NetworkingClient", "Failed to send ping", e)
                 }
@@ -299,7 +298,7 @@ open class SodtClient(
     }
     /**
      * Calculates the SHA-256 hash of a file provided via Uri.
-     * Returns the hex string representation of the hash.
+     * Returns the base64 encoded hash as a String.
      */
     private fun getFileHash(fileUri: Uri): String {
         return try {
@@ -312,7 +311,7 @@ open class SodtClient(
                 }
             }
             // Convert byte array to Hex String
-            digest.digest().joinToString("") { "%02x".format(it) }
+            Base64.encodeToString(digest.digest(), Base64.NO_WRAP)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to calculate hash for $fileUri", e)
             throw e;

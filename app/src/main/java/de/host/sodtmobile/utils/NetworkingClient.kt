@@ -70,8 +70,6 @@ class NetworkingClient(private val receivedEventListener: IDataReceivedEventList
             require(dataWithIds.size == SodtConstants.FULL_MESSAGE_SIZE) { "Data size must be exactly ${SodtConstants.FULL_MESSAGE_SIZE} bytes, but was ${dataWithIds.size}" }
             outputStream?.write(dataWithIds)
             outputStream?.flush() // Important to flush the stream to ensure data is sent
-            LogsActivity.addLog("Sent data to server: ${dataWithIds.slice(0 until 10)}")
-            Log.d(TAG, "Sent data to server: ${dataWithIds.slice(0 until 10)}")
             true
         } catch (e: IOException) {
             Log.e(TAG, "Error sending data: ${e.message}")

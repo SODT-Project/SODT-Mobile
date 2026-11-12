@@ -84,12 +84,12 @@ class SodtClientUiWrapper(
             }
             200 -> {/*Do nothing on ui level*/}
             250 -> {
-                // make successful transfer request visible in UI via Toast
+                // make successful transfer acknowledgement visible in UI via Toast
                 CoroutineScope(Dispatchers.Main).launch {
                     Toast.makeText(
                         context,
-                        "Transfer request for file ${dataPacket.filename} accepted by $remoteID",
-                        Toast.LENGTH_SHORT
+                        "$remoteID received ${dataPacket.filename} successfully!",
+                        Toast.LENGTH_LONG
                     ).show()
                 }
             }
