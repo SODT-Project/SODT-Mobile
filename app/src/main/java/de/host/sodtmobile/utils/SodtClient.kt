@@ -39,7 +39,7 @@ open class SodtClient(
 ) {
 
 
-    private var encryptionManager: EncryptionManager = EncryptionManager()
+    protected var encryptionManager: EncryptionManager = EncryptionManager()
     private var pingJob: Job? = null
     private var sodtReceiver: SodtReceiver =
         SodtReceiver(encryptionManager, this) // not ideal logic but it works
@@ -151,7 +151,7 @@ open class SodtClient(
         sendUnencryptedPacket(receiverID, payload)
     }
 
-    fun respondToKeyExchange(remoteID: UByte, requestPacket: SodtPackets.KeyExchangePayload) {
+    open fun respondToKeyExchange(remoteID: UByte, requestPacket: SodtPackets.KeyExchangePayload) {
         // handle possible errors
         if (requestPacket.key.isEmpty()) {
             LogsActivity.addLog("Key exchange failed with ${remoteID}: Key is empty")
@@ -194,9 +194,8 @@ open class SodtClient(
             }
         }
         // generate key exchange pair from dataPacket (if code was 100 or 200)
+        // shared phrase is also generated and stored in the encryption manager
         encryptionManager.generateAndStoreAesSessionKeyFromKeyExchange(remoteID, requestPacket.key)
-        val sharedPhrase = encryptionManager.getSharedPhrase(remoteID, requestPacket)
-        Log.d(TAG, "Shared Phrase: $sharedPhrase") // TODO add to UI
     }
 
     /**

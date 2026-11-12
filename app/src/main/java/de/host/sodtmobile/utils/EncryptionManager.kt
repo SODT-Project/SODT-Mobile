@@ -38,6 +38,7 @@ class EncryptionManager() {
     private val aesAlgorithm = "AES/Gcm/NoPadding"
     private val aesSessionKeys = mutableMapOf<UByte, SecretKey>()
     private val ecdhSessionKeyGenerators = mutableMapOf<UByte, KeyPair>()
+    private val sharedPhraseMap = mutableMapOf<UByte, String>()
 
     // INFO:
     // android keystore not used because it does not support needed algorithm configurations
@@ -47,10 +48,15 @@ class EncryptionManager() {
     fun removeSessionKey(clientId: UByte) {
         aesSessionKeys.remove(clientId)
         ecdhSessionKeyGenerators.remove(clientId)
+        sharedPhraseMap.remove(clientId)
     }
 
     fun hasClientSessionKeyFor(clientId: UByte): Boolean {
         return aesSessionKeys.containsKey(clientId)
+    }
+
+    fun getSharedPhraseForClient(clientId: UByte): String? {
+        return sharedPhraseMap[clientId]
     }
 
     private fun getEcdhKeyAsBase64(keyPair: KeyPair): String {
@@ -104,6 +110,7 @@ class EncryptionManager() {
         val sharedSecret = deriveSharedSecretFromBase64Key(remoteId, otherKeyBase64)
         val aesSessionKey = deriveAesKeyFromSharedSecret(sharedSecret)
         aesSessionKeys[remoteId] = aesSessionKey
+        sharedPhraseMap[remoteId] = getSharedPhrase(remoteId, otherKeyBase64)
     }
 
     fun encryptAesGcm(remoteId: UByte, baseMessage: SodtPackets.IBasePacket): ByteArray? {
@@ -145,8 +152,8 @@ class EncryptionManager() {
         return null
     }
 
-    fun getSharedPhrase(remoteId: UByte, keyExchangePacket: SodtPackets.KeyExchangePayload): String {
-        val sharedSecret = deriveSharedSecretFromBase64Key(remoteId, keyExchangePacket.key)
+    private fun getSharedPhrase(remoteId: UByte, otherKeyBase64: String): String {
+        val sharedSecret = deriveSharedSecretFromBase64Key(remoteId, otherKeyBase64)
         val sha256 = MessageDigest.getInstance("SHA-256")
         val derivedKey = sha256.digest(sharedSecret) // 32-byte key
         val keyInHex = derivedKey.joinToString("") { "%02X".format(it) }
@@ -155,7 +162,7 @@ class EncryptionManager() {
         return "${keyParts[0]}-${keyParts[4]}-${keyParts[8]}-${keyParts[16]}-${keyParts[31]}"
     }
 
-     fun parsePemPublicKey(pemString: String): PublicKey? {
+    fun parsePemPublicKey(pemString: String): PublicKey? {
          val publicKeyPem = pemString
              .replace("-----BEGIN PUBLIC KEY-----", "")
              .replace("-----END PUBLIC KEY-----", "")
@@ -200,6 +207,7 @@ class EncryptionManager() {
     fun close(){
         aesSessionKeys.clear()
         ecdhSessionKeyGenerators.clear()
+        sharedPhraseMap.clear()
     }
 
     // AI code to convert IEEE P1363 signature to DER format for ECDSA verification

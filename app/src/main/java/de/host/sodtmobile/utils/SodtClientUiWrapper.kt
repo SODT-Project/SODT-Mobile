@@ -57,7 +57,7 @@ class SodtClientUiWrapper(
             }
             // add client to the client list
             val clientName = client + if (clientId == Globals.clientID) " (you)" else ""
-            clientList.add(ClientListElement(clientId, clientName))
+            clientList.add(ClientListElement(clientId, clientName, encryptionManager.getSharedPhraseForClient(clientId)))
         }
         // notify the adapter that the data has changed on main thread
         CoroutineScope(Dispatchers.Main).launch {
@@ -114,5 +114,15 @@ class SodtClientUiWrapper(
             Toast.makeText(context, "Sending file (uuid: $uuid) to $targetId", Toast.LENGTH_SHORT).show()
         }
         super.sendFile(targetId, uuid)
+    }
+
+    override fun respondToKeyExchange(remoteID: UByte, requestPacket: SodtPackets.KeyExchangePayload) {
+        super.respondToKeyExchange(remoteID, requestPacket)
+        // update the client list with the new shared phrase
+        val clientIndex = clientList.indexOfFirst { it.clientId == remoteID }
+        if (clientIndex != -1) {
+            clientList[clientIndex] = ClientListElement(remoteID, remoteID.toString(), encryptionManager.getSharedPhraseForClient(remoteID))
+            CoroutineScope(Dispatchers.Main).launch { clientListElementAdapter.notifyItemChanged(clientIndex) }
+        }
     }
 }
