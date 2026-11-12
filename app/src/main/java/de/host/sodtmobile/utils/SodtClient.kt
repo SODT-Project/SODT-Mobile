@@ -401,9 +401,9 @@ open class SodtClient(
                 sendFile(remoteID, dataPacket.uuid)
                 // rest is handled in sendFile method
             }
-            250 -> {} // TODO
-            300 -> {} // TODO
-            400 -> {} // TODO
+            250 -> {} // acknowledgement message is handled in UIWrapper, nothing to do here
+            300 -> {cleanIncomingTransfers(dataPacket.uuid)} // message handed in UIWrapper
+            400 -> {cleanIncomingTransfers(dataPacket.uuid)} // message handed in UIWrapper
 
             else -> {
                 LogsActivity.addLog("Transfer request failed. Code: ${dataPacket.code}")
@@ -605,14 +605,17 @@ open class SodtClient(
                 incomingTransfersProgress[dataPacket.uuid] =
                     incomingTransfersProgress[dataPacket.uuid]!! - dataBytes.size
             }
-        // if transfer is complete
-        if (incomingTransfersProgress[dataPacket.uuid] == 0L) {
-            LogsActivity.addLog("File transfer completed for UUID ${dataPacket.uuid}")
-            Log.d(TAG, "File transfer completed for UUID ${dataPacket.uuid}")
-            file.close()
-            incomingTransfers.remove(dataPacket.uuid)
-            incomingTransfersProgress.remove(dataPacket.uuid)
+            // if transfer is complete
+            if (incomingTransfersProgress[dataPacket.uuid] == 0L) {
+                LogsActivity.addLog("File transfer completed for UUID ${dataPacket.uuid}")
+                Log.d(TAG, "File transfer completed for UUID ${dataPacket.uuid}")
+                cleanIncomingTransfers(dataPacket.uuid)
+            }
         }
-        }
+    }
+    private fun cleanIncomingTransfers(transferUuid: Int) {
+        incomingTransfers[transferUuid]?.close()
+        incomingTransfers.remove(transferUuid)
+        incomingTransfersProgress.remove(transferUuid)
     }
 }

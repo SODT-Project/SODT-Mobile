@@ -83,6 +83,36 @@ class SodtClientUiWrapper(
                 CoroutineScope(Dispatchers.Main).launch { transferListElementAdapter.notifyItemInserted(0) }
             }
             200 -> {/*Do nothing on ui level*/}
+            250 -> {
+                // make successful transfer request visible in UI via Toast
+                CoroutineScope(Dispatchers.Main).launch {
+                    Toast.makeText(
+                        context,
+                        "Transfer request for file ${dataPacket.filename} accepted by $remoteID",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+            300 -> {
+                // make failed transfer request visible in UI via Toast
+                CoroutineScope(Dispatchers.Main).launch {
+                    Toast.makeText(
+                        context,
+                        "Transfer request for file ${dataPacket.filename} rejected by $remoteID",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+            400 -> {
+                // make failed transfer request visible in UI via Toast
+                CoroutineScope(Dispatchers.Main).launch {
+                    Toast.makeText(
+                        context,
+                        "Transfer request for file ${dataPacket.filename} failed with code 400",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
             else -> {
                 LogsActivity.addLog("File transfer request for ${dataPacket.filename} failed with code: ${dataPacket.code}")
             }
