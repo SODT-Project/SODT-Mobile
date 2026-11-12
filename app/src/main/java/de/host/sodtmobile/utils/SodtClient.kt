@@ -98,7 +98,6 @@ open class SodtClient(
                 Log.e(TAG, "Failed to encrypt packet for client $receiverID")
                 return@launch
             }
-            Log.d(TAG, "Sending packet to client $receiverID")
             networkingClient.sendData(receiverID, encryptedPacket)
         }
     }
