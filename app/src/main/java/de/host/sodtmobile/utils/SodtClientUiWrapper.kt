@@ -1,8 +1,11 @@
 package de.host.sodtmobile.utils
 
 import android.content.Context
+import android.text.format.Formatter
 import android.util.Log
 import android.widget.Toast
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import de.host.sodtmobile.R
 import de.host.sodtmobile.activities.LogsActivity
 import de.host.sodtmobile.elements.ClientListElement
 import de.host.sodtmobile.elements.ListElementAdapter
@@ -68,20 +71,35 @@ class SodtClientUiWrapper(
     }
 
     override fun respondToTransferRequest(remoteID: UByte, dataPacket: SodtPackets.InitTransferPayload) {
+        if (dataPacket.code == 100) {
+            CoroutineScope(Dispatchers.Main).launch {
+                val formattedSize = Formatter.formatFileSize(context, dataPacket.filesize)
+                MaterialAlertDialogBuilder(context)
+                    .setTitle(R.string.dialog_file_transfer_title)
+                    .setMessage(context.getString(R.string.dialog_file_transfer_message, remoteID.toString(), dataPacket.filename, formattedSize))
+                    .setCancelable(false)
+                    .setPositiveButton(R.string.dialog_accept) { _, _ ->
+                        acceptTransferRequest(remoteID, dataPacket)
+                        transferList.add(0, TransferElement(
+                            transferId = dataPacket.uuid,
+                            senderName = remoteID.toString(),
+                            fileName = dataPacket.filename,
+                            totalSize = dataPacket.filesize,
+                            fileHash = dataPacket.filehash,
+                            remainingSize = dataPacket.filesize
+                        ))
+                        transferListElementAdapter.notifyItemInserted(0)
+                    }
+                    .setNegativeButton(R.string.dialog_deny) { _, _ ->
+                        denyTransferRequest(remoteID, dataPacket)
+                    }
+                    .show()
+            }
+            return
+        }
+
         super.respondToTransferRequest(remoteID, dataPacket)
         when (dataPacket.code) {
-            100 -> {
-                // save the transfer request
-                transferList.add(0, TransferElement(
-                    transferId = dataPacket.uuid,
-                    senderName = remoteID.toString(),
-                    fileName = dataPacket.filename,
-                    totalSize = dataPacket.filesize,
-                    fileHash = dataPacket.filehash,
-                    remainingSize = dataPacket.filesize
-                ))
-                CoroutineScope(Dispatchers.Main).launch { transferListElementAdapter.notifyItemInserted(0) }
-            }
             200 -> {/*Do nothing on ui level*/}
             250 -> {
                 // make successful transfer acknowledgement visible in UI via Toast
@@ -147,8 +165,30 @@ class SodtClientUiWrapper(
     }
 
     override fun respondToKeyExchange(remoteID: UByte, requestPacket: SodtPackets.KeyExchangePayload) {
+        if (requestPacket.code == 100) {
+            CoroutineScope(Dispatchers.Main).launch {
+                MaterialAlertDialogBuilder(context)
+                    .setTitle(R.string.dialog_key_exchange_title)
+                    .setMessage(context.getString(R.string.dialog_key_exchange_message, remoteID.toString()))
+                    .setCancelable(false)
+                    .setPositiveButton(R.string.dialog_accept) { _, _ ->
+                        acceptKeyExchange(remoteID, requestPacket)
+                        updateClientSharedPhrase(remoteID)
+                    }
+                    .setNegativeButton(R.string.dialog_deny) { _, _ ->
+                        denyKeyExchange(remoteID)
+                    }
+                    .show()
+            }
+            return
+        }
+
         super.respondToKeyExchange(remoteID, requestPacket)
-        // update the client list with the new shared phrase
+        // update the client list with the new shared phrase (e.g. after code 200 response received)
+        updateClientSharedPhrase(remoteID)
+    }
+
+    private fun updateClientSharedPhrase(remoteID: UByte) {
         val clientIndex = clientList.indexOfFirst { it.clientId == remoteID }
         if (clientIndex != -1) {
             clientList[clientIndex] = ClientListElement(remoteID, remoteID.toString(), encryptionManager.getSharedPhraseForClient(remoteID))

@@ -27,4 +27,11 @@
     <string name="close">Close</string>
     <string name="clear">Clear</string>
     <string name="logs_subtitle">Network events and diagnostics</string>
+    <!-- string values for dialogs -->
+    <string name="dialog_key_exchange_title">Key Exchange Request</string>
+    <string name="dialog_key_exchange_message">Client %1$s requests a key exchange. Do you want to accept?</string>
+    <string name="dialog_file_transfer_title">File Transfer Request</string>
+    <string name="dialog_file_transfer_message">Client %1$s wants to send file \'%2$s\' (%3$s). Do you want to accept?</string>
+    <string name="dialog_accept">Accept</string>
+    <string name="dialog_deny">Deny</string>
 </resources>

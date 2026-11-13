@@ -90,7 +90,7 @@ open class SodtClient(
      * @param receiverID The ID of the client to send the packet to.
      * @param dataPaket The data packet to be sent.
      */
-    private fun sendEncryptedAesPacket(receiverID: UByte, dataPaket: SodtPackets.IBasePacket) {
+    protected fun sendEncryptedAesPacket(receiverID: UByte, dataPaket: SodtPackets.IBasePacket) {
         CoroutineScope(Dispatchers.Default).launch {
             val encryptedPacket = encryptionManager.encryptAesGcm(receiverID, dataPaket)
 
@@ -103,7 +103,7 @@ open class SodtClient(
         }
     }
 
-    private fun sendUnencryptedPacket(receiverID: UByte, dataPaket: SodtPackets.IBasePacket) {
+    protected fun sendUnencryptedPacket(receiverID: UByte, dataPaket: SodtPackets.IBasePacket) {
         CoroutineScope(Dispatchers.Default).launch {
             val cryptoHeader = ByteArray(SodtConstants.TAG_SIZE + SodtConstants.NONCE_SIZE)
             networkingClient.sendData(receiverID, cryptoHeader + dataPaket.toByteArray())
@@ -164,11 +164,8 @@ open class SodtClient(
             100 -> {
                 LogsActivity.addLog("Key exchange requested by: $remoteID")
                 Log.d(TAG, "Key exchange requested by : $remoteID")
-                val responsePacket = SodtPackets.KeyExchangePayload(
-                    code = 200,
-                    key = encryptionManager.createEcdhKeyPair(remoteID))
-                // TODO ask for permission
-                sendUnencryptedPacket(remoteID, responsePacket)
+                acceptKeyExchange(remoteID, requestPacket)
+                return
             }
 
             200 -> {
@@ -198,6 +195,25 @@ open class SodtClient(
         // generate key exchange pair from dataPacket (if code was 100 or 200)
         // shared phrase is also generated and stored in the encryption manager
         encryptionManager.generateAndStoreAesSessionKeyFromKeyExchange(remoteID, requestPacket.key)
+    }
+
+    open fun acceptKeyExchange(remoteID: UByte, requestPacket: SodtPackets.KeyExchangePayload) {
+        val responsePacket = SodtPackets.KeyExchangePayload(
+            code = 200,
+            key = encryptionManager.createEcdhKeyPair(remoteID)
+        )
+        sendUnencryptedPacket(remoteID, responsePacket)
+        encryptionManager.generateAndStoreAesSessionKeyFromKeyExchange(remoteID, requestPacket.key)
+    }
+
+    open fun denyKeyExchange(remoteID: UByte) {
+        LogsActivity.addLog("Denying key exchange request from $remoteID")
+        Log.d(TAG, "Denying key exchange request from $remoteID")
+        val responsePacket = SodtPackets.KeyExchangePayload(
+            code = 300,
+            key = ""
+        )
+        sendUnencryptedPacket(remoteID, responsePacket)
     }
 
     /**
@@ -230,7 +246,7 @@ open class SodtClient(
                 continue
             }
             connectedClients.add(clientId)
-            requestKeyExchange(clientId)
+            //requestKeyExchange(clientId) // TODO
         }
     }
 
@@ -368,32 +384,7 @@ open class SodtClient(
                     TAG,
                     "Transfer request from $remoteID for file ${dataPacket.filename} of size ${dataPacket.filesize}"
                 )
-                // check if the file already exists in incoming transfers
-                if (incomingTransfers.containsKey(dataPacket.uuid)) {
-                    LogsActivity.addLog("Transfer request for file ${dataPacket.filename} already exists")
-                    Log.w(TAG, "Transfer request for file ${dataPacket.filename} already exists")
-                    return
-                }
-                // add the transfer request to incoming transfers
-                val file = createNewSaveStream(dataPacket)
-                if (file == null) {
-                    LogsActivity.addLog("Failed to create new file for transfer request")
-                    Log.e(TAG, "Failed to create new file for transfer request")
-                    return
-                }
-                // save the transfer request
-                incomingTransfers[dataPacket.uuid] = file
-                incomingTransfersProgress[dataPacket.uuid] = dataPacket.filesize
-                incomingTransferMetaData[dataPacket.uuid] = dataPacket
-                // send response
-                val responsePacket = SodtPackets.InitTransferPayload(
-                    code = 200,
-                    uuid = dataPacket.uuid,
-                    filename = dataPacket.filename,
-                    filesize = dataPacket.filesize,
-                    filehash = dataPacket.filehash
-                )
-                sendEncryptedAesPacket(remoteID, responsePacket)
+                acceptTransferRequest(remoteID, dataPacket)
             }
 
             200 -> {
@@ -415,6 +406,49 @@ open class SodtClient(
                 return
             }
         }
+    }
+
+    open fun acceptTransferRequest(remoteID: UByte, dataPacket: SodtPackets.InitTransferPayload) {
+        // check if the file already exists in incoming transfers
+        if (incomingTransfers.containsKey(dataPacket.uuid)) {
+            LogsActivity.addLog("Transfer request for file ${dataPacket.filename} already exists")
+            Log.w(TAG, "Transfer request for file ${dataPacket.filename} already exists")
+            return
+        }
+        // add the transfer request to incoming transfers
+        val file = createNewSaveStream(dataPacket)
+        if (file == null) {
+            LogsActivity.addLog("Failed to create new file for transfer request")
+            Log.e(TAG, "Failed to create new file for transfer request")
+            return
+        }
+        // save the transfer request
+        incomingTransfers[dataPacket.uuid] = file
+        incomingTransfersProgress[dataPacket.uuid] = dataPacket.filesize
+        incomingTransferMetaData[dataPacket.uuid] = dataPacket
+        // send response
+        val responsePacket = SodtPackets.InitTransferPayload(
+            code = 200,
+            uuid = dataPacket.uuid,
+            filename = dataPacket.filename,
+            filesize = dataPacket.filesize,
+            filehash = dataPacket.filehash
+        )
+        sendEncryptedAesPacket(remoteID, responsePacket)
+    }
+
+    open fun denyTransferRequest(remoteID: UByte, dataPacket: SodtPackets.InitTransferPayload) {
+        LogsActivity.addLog("Denying transfer request for file ${dataPacket.filename} from $remoteID")
+        Log.d(TAG, "Denying transfer request for file ${dataPacket.filename} from $remoteID")
+        cleanIncomingTransfers(dataPacket.uuid)
+        val responsePacket = SodtPackets.InitTransferPayload(
+            code = 300,
+            uuid = dataPacket.uuid,
+            filename = dataPacket.filename,
+            filesize = dataPacket.filesize,
+            filehash = dataPacket.filehash
+        )
+        sendEncryptedAesPacket(remoteID, responsePacket)
     }
 
     /**
