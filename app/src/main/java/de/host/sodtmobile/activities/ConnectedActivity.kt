@@ -17,6 +17,7 @@ import de.host.sodtmobile.elements.ClientListElement
 import de.host.sodtmobile.elements.IListElement
 import de.host.sodtmobile.elements.TransferElement
 import de.host.sodtmobile.elements.ProgressBarListElementAdapter
+import de.host.sodtmobile.utils.Globals
 import de.host.sodtmobile.utils.SodtClientUiWrapper
 
 class ConnectedActivity : AppCompatActivity() {
@@ -85,9 +86,15 @@ class ConnectedActivity : AppCompatActivity() {
     }
 
     private fun selectClient(client: IListElement?) {
-        if (client is ClientListElement && clientList.contains(client)) {
+        if (client is ClientListElement && client.clientId == Globals.clientID) {
+            Toast.makeText(this, "You cant send to yourself!", Toast.LENGTH_LONG).show()
+        }
+        else if (client is ClientListElement && clientList.contains(client)) {
             sodtClient.selectedClient = client
             selectFileButton.text = getString(R.string.select_file, client.clientName)
+            if (client.sharedPhrase == null) {
+                sodtClient.requestKeyExchange(client.clientId)
+            }
         }
         else {
             sodtClient.selectedClient = null
@@ -102,9 +109,14 @@ class ConnectedActivity : AppCompatActivity() {
         finish() // Close the activity, returning to the previous one (MainActivity)
     }
     fun onSendFileToButtonClick(view: View) {
-        if (sodtClient.selectedClient == null || !clientList.contains(sodtClient.selectedClient)) {
+        val client = sodtClient.selectedClient
+        if (client == null || !clientList.contains(client)) {
             // send toast message to select a client first
             Toast.makeText(this, "Select a connected client first!", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (client.sharedPhrase == null) {
+            Toast.makeText(this, "Key exchange not completed with ${client.clientName}!", Toast.LENGTH_SHORT).show()
             return
         }
         val intent = Intent()

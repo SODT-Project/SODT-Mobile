@@ -274,4 +274,20 @@ ${Base64.encodeToString(keyPair.public.encoded, Base64.NO_WRAP)}
 
         peerManager.close()
     }
+
+    @Test
+    fun respondToKeyExchange_code300_showsRejectionToastAndUnselectsClient() {
+        val clientElem = ClientListElement(6u, "6", null)
+        clientList.add(clientElem)
+        wrapper.selectedClient = clientElem
+
+        val packet = SodtPackets.KeyExchangePayload(code = 300, key = "")
+        wrapper.respondToKeyExchange(6u, packet)
+        ShadowLooper.idleMainLooper()
+
+        val toastText = ShadowToast.getTextOfLatestToast()
+        assertNotNull(toastText)
+        assertTrue(toastText!!.contains("rejected by 6"))
+        assertEquals(null, wrapper.selectedClient)
+    }
 }

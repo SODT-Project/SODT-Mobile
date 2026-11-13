@@ -211,8 +211,30 @@ class SodtClientUiWrapper(
         }
 
         super.respondToKeyExchange(remoteID, requestPacket)
-        // update the client list with the new shared phrase (e.g. after code 200 response received)
-        updateClientSharedPhrase(remoteID)
+        when (requestPacket.code) {
+            200 -> {
+                // update the client list with the new shared phrase (e.g. after code 200 response received)
+                updateClientSharedPhrase(remoteID)
+            }
+            300 -> {
+                CoroutineScope(Dispatchers.Main).launch {
+                    Toast.makeText(context, "Key exchange rejected by $remoteID", Toast.LENGTH_SHORT).show()
+                    if (selectedClient?.clientId == remoteID) {
+                        selectedClient = null
+                        onClientSetAction(null)
+                    }
+                }
+            }
+            400 -> {
+                CoroutineScope(Dispatchers.Main).launch {
+                    Toast.makeText(context, "Key exchange failed with $remoteID", Toast.LENGTH_SHORT).show()
+                    if (selectedClient?.clientId == remoteID) {
+                        selectedClient = null
+                        onClientSetAction(null)
+                    }
+                }
+            }
+        }
     }
 
     private fun updateClientSharedPhrase(remoteID: UByte) {

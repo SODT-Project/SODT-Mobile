@@ -139,7 +139,7 @@ open class SodtClient(
     /**
      * Requests a key exchange with the specified receiver.
      */
-    private fun requestKeyExchange(receiverID: UByte) {
+    open fun requestKeyExchange(receiverID: UByte) {
         require(receiverID != Globals.clientID) { "Cannot request key exchange with oneself." }
         require(connectedClients.contains(receiverID)) { "Client $receiverID is not connected." }
 
@@ -238,7 +238,7 @@ open class SodtClient(
                 encryptionManager.removeSessionKey(client)
             }
         }
-        // request key exchange for all clients that are not the server and do not have a session key yet
+        connectedClients.clear()
         for (client in clients) {
             val clientId = client.toUByteOrNull()
             // check if clientId is null or if it is the server ID
@@ -246,7 +246,6 @@ open class SodtClient(
                 continue
             }
             connectedClients.add(clientId)
-            //requestKeyExchange(clientId) // TODO
         }
     }
 

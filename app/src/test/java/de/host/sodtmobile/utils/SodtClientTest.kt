@@ -214,6 +214,15 @@ ${Base64.encodeToString(serverIdentityKeyPair.public.encoded, Base64.NO_WRAP)}
     }
 
     @Test
+    fun requestKeyExchange_connectedPeer_sendsPacketWithoutThrowing() {
+        val clientIds = byteArrayOf(1, 9)
+        val base64Clients = org.bouncycastle.util.encoders.Base64.toBase64String(clientIds)
+        client.receiveClientList(SodtPackets.ClientListPayload(code = 200, clients = base64Clients))
+
+        client.requestKeyExchange(9u)
+    }
+
+    @Test
     fun disconnect_resetsState() {
         client.disconnect()
         assertFalse("Client should not be initiated after disconnect", client.isInitiated)
