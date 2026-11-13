@@ -46,7 +46,7 @@ class SodtReceiver (
             "clients" -> sodtClient.receiveClientList(gson.fromJson(json, SodtPackets.ClientListPayload::class.java))
             "exchange" -> sodtClient.respondToKeyExchange(sourceId, gson.fromJson(json, SodtPackets.KeyExchangePayload::class.java))
             "transfer" -> sodtClient.respondToTransferRequest(sourceId, gson.fromJson(json, SodtPackets.InitTransferPayload::class.java))
-            "file" -> sodtClient.receiveFileData(gson.fromJson(json, SodtPackets.TransferDataPayload::class.java))
+            "file" -> sodtClient.receiveFileData(sourceId, gson.fromJson(json, SodtPackets.TransferDataPayload::class.java))
             "disconnect" -> sodtClient.disconnect()
             else -> throw IllegalArgumentException("Unknown packet")
         }

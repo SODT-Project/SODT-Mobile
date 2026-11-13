@@ -88,7 +88,7 @@ class SodtClientUiWrapper(
                 CoroutineScope(Dispatchers.Main).launch {
                     Toast.makeText(
                         context,
-                        "$remoteID received ${dataPacket.filename} successfully!",
+                        "$remoteID reported successful transfer of ${dataPacket.filename}",
                         Toast.LENGTH_LONG
                     ).show()
                 }
@@ -119,8 +119,8 @@ class SodtClientUiWrapper(
         }
     }
 
-    override fun receiveFileData(dataPacket: SodtPackets.TransferDataPayload) {
-        super.receiveFileData(dataPacket)
+    override fun receiveFileData(remoteId: UByte, dataPacket: SodtPackets.TransferDataPayload) {
+        super.receiveFileData(remoteId, dataPacket)
         // find the transfer in the list (not ideal but enough to fulfill the requirements. Use a map later)
         val transferListIndex = transferList.indexOfFirst { it.transferId == dataPacket.uuid }
         if (transferListIndex == -1) {

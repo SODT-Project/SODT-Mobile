@@ -21,7 +21,6 @@ import kotlinx.coroutines.sync.withLock
 import java.io.FileOutputStream
 import java.nio.ByteBuffer
 import java.security.MessageDigest
-import kotlin.text.get
 
 /** * SodtClient is the main class for the Sodt client.
  * It handles the connection to the server, sending and receiving packets, and file transfers.
@@ -60,6 +59,8 @@ open class SodtClient(
      */
     private val pendingTransferRequests = mutableMapOf<Int, Uri>()
     private val incomingTransfers = mutableMapOf<Int, ParcelFileDescriptor>()
+
+    private val incomingTransferMetaData = mutableMapOf<Int, SodtPackets.InitTransferPayload>()
 
     /**
      * Map to store incoming transfers progress.
@@ -383,6 +384,7 @@ open class SodtClient(
                 // save the transfer request
                 incomingTransfers[dataPacket.uuid] = file
                 incomingTransfersProgress[dataPacket.uuid] = dataPacket.filesize
+                incomingTransferMetaData[dataPacket.uuid] = dataPacket
                 // send response
                 val responsePacket = SodtPackets.InitTransferPayload(
                     code = 200,
@@ -593,7 +595,7 @@ open class SodtClient(
      * It writes the received data to the file output stream.
      * @param dataPacket The transfer data payload received from the server.
      */
-    open fun receiveFileData(dataPacket: SodtPackets.TransferDataPayload) {
+    open fun receiveFileData(remoteId: UByte, dataPacket: SodtPackets.TransferDataPayload) {
         // check if the transfer request exists
         if (!incomingTransfers.containsKey(dataPacket.uuid)) {
             LogsActivity.addLog("No accepted transfer found for UUID ${dataPacket.uuid}")
@@ -623,6 +625,14 @@ open class SodtClient(
             if (incomingTransfersProgress[dataPacket.uuid] == 0L) {
                 LogsActivity.addLog("File transfer completed for UUID ${dataPacket.uuid}")
                 Log.d(TAG, "File transfer completed for UUID ${dataPacket.uuid}")
+                // send acknowledgement
+                val initialTransfer = incomingTransferMetaData[dataPacket.uuid] ?: return@launch
+                val ack = SodtPackets.InitTransferPayload(
+                    code = 250,
+                    filename = initialTransfer.filename,
+                    filesize = initialTransfer.filesize,
+                    filehash = initialTransfer.filehash)
+                sendEncryptedAesPacket(remoteId, ack)
                 cleanIncomingTransfers(dataPacket.uuid)
             }
         }
@@ -631,5 +641,6 @@ open class SodtClient(
         incomingTransfers[transferUuid]?.close()
         incomingTransfers.remove(transferUuid)
         incomingTransfersProgress.remove(transferUuid)
+        incomingTransferMetaData.remove(transferUuid)
     }
 }
