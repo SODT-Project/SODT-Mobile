@@ -181,10 +181,14 @@ class EncryptionManager() {
 
     fun verifySignature(certificate: String, dataPacket: SodtPackets.DiscoveryPayload): Boolean {
         // prepare certificate
-        val publicKey = parsePemPublicKey(certificate)
+        val publicKey = parsePemPublicKey(certificate) ?: return false
         // prepare signature verification
-        val localEcdhKey = ecdhSessionKeyGenerators[SodtConstants.SERVER_ID]!!.public.encoded
-        val remoteEcdhKey = Base64.decode(dataPacket.publicKey, Base64.NO_WRAP)
+        val localEcdhKey = ecdhSessionKeyGenerators[SodtConstants.SERVER_ID]?.public?.encoded ?: return false
+        val remoteEcdhKey = try {
+            Base64.decode(dataPacket.publicKey, Base64.NO_WRAP)
+        } catch (_: Exception) {
+            return false
+        }
         val toVerify = localEcdhKey + remoteEcdhKey + dataPacket.id.toByte()
 
         val signature = Signature.getInstance("SHA256withECDSA")
