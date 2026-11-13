@@ -4,6 +4,7 @@ import android.content.Context
 import android.text.format.Formatter
 import android.util.Log
 import android.widget.Toast
+import androidx.preference.PreferenceManager
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import de.host.sodtmobile.R
 import de.host.sodtmobile.activities.LogsActivity
@@ -72,6 +73,24 @@ class SodtClientUiWrapper(
 
     override fun respondToTransferRequest(remoteID: UByte, dataPacket: SodtPackets.InitTransferPayload) {
         if (dataPacket.code == 100) {
+            val prefs = PreferenceManager.getDefaultSharedPreferences(context)
+            val autoAccept = prefs.getBoolean("preference_auto_accept_transfer", false)
+            if (autoAccept) {
+                acceptTransferRequest(remoteID, dataPacket)
+                CoroutineScope(Dispatchers.Main).launch {
+                    transferList.add(0, TransferElement(
+                        transferId = dataPacket.uuid,
+                        senderName = remoteID.toString(),
+                        fileName = dataPacket.filename,
+                        totalSize = dataPacket.filesize,
+                        fileHash = dataPacket.filehash,
+                        remainingSize = dataPacket.filesize
+                    ))
+                    transferListElementAdapter.notifyItemInserted(0)
+                }
+                return
+            }
+
             CoroutineScope(Dispatchers.Main).launch {
                 val formattedSize = Formatter.formatFileSize(context, dataPacket.filesize)
                 MaterialAlertDialogBuilder(context)
@@ -166,6 +185,14 @@ class SodtClientUiWrapper(
 
     override fun respondToKeyExchange(remoteID: UByte, requestPacket: SodtPackets.KeyExchangePayload) {
         if (requestPacket.code == 100) {
+            val prefs = PreferenceManager.getDefaultSharedPreferences(context)
+            val autoAccept = prefs.getBoolean("preference_auto_accept_key_exchange", false)
+            if (autoAccept) {
+                acceptKeyExchange(remoteID, requestPacket)
+                updateClientSharedPhrase(remoteID)
+                return
+            }
+
             CoroutineScope(Dispatchers.Main).launch {
                 MaterialAlertDialogBuilder(context)
                     .setTitle(R.string.dialog_key_exchange_title)

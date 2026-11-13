@@ -19,4 +19,14 @@
         android:selectAllOnFocus="true"
         android:singleLine="false"
         android:title="@string/preference_server_public_key" />
+    <SwitchPreferenceCompat
+        android:defaultValue="false"
+        android:key="preference_auto_accept_key_exchange"
+        android:summary="@string/preference_auto_accept_key_exchange_summary"
+        android:title="@string/preference_auto_accept_key_exchange" />
+    <SwitchPreferenceCompat
+        android:defaultValue="false"
+        android:key="preference_auto_accept_transfer"
+        android:summary="@string/preference_auto_accept_transfer_summary"
+        android:title="@string/preference_auto_accept_transfer" />
 </PreferenceScreen>

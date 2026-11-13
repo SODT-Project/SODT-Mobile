@@ -7,6 +7,10 @@
     <string name="preference_server_ip">Server Address</string>
     <string name="preference_server_port">Server Port</string>
     <string name="preference_server_public_key">Server Public Key</string>
+    <string name="preference_auto_accept_key_exchange">Auto-accept Key Exchange</string>
+    <string name="preference_auto_accept_key_exchange_summary">Automatically accept incoming key exchange requests</string>
+    <string name="preference_auto_accept_transfer">Auto-accept File Transfer</string>
+    <string name="preference_auto_accept_transfer_summary">Automatically accept incoming file transfer requests</string>
     <string name="submit_button">Submit</string>
     <string name="preferences_subtitle">Configure relay server connection and security keys</string>
     <!-- string values for main activity -->

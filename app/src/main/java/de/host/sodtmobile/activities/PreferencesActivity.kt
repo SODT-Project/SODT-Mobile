@@ -38,9 +38,9 @@ class PreferencesActivity : AppCompatActivity() {
 
     private fun validateInput() : Boolean {
         val manager = PreferenceManager.getDefaultSharedPreferences(this).all
-        // check if any of the preferences are empty or null
+        // check if any of the preferences are empty or null (ignoring boolean switches)
         for ((key, value) in manager) {
-            if (value == null || value.toString().isEmpty()) {
+            if (value !is Boolean && (value == null || value.toString().isEmpty())) {
                 Toast.makeText(this, "Preference $key cannot be empty", Toast.LENGTH_SHORT).show()
                 return false
             }

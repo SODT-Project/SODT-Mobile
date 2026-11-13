@@ -2,6 +2,7 @@ package de.host.sodtmobile.utils
 
 import android.content.Context
 import android.util.Base64
+import androidx.preference.PreferenceManager
 import de.host.sodtmobile.elements.ClientListElement
 import de.host.sodtmobile.elements.ListElementAdapter
 import de.host.sodtmobile.elements.TransferElement
@@ -16,13 +17,12 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowLooper
 import org.robolectric.shadows.ShadowToast
 import java.security.KeyPairGenerator
 import java.security.SecureRandom
 import java.security.spec.ECGenParameterSpec
-
-import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -39,6 +39,14 @@ class SodtClientUiWrapperTest {
     @Before
     fun setUp() {
         context = RuntimeEnvironment.getApplication()
+
+        // Enable auto accept by default in tests for simplicity
+        PreferenceManager.getDefaultSharedPreferences(context)
+            .edit()
+            .putBoolean("preference_auto_accept_key_exchange", true)
+            .putBoolean("preference_auto_accept_transfer", true)
+            .apply()
+
         clientList = mutableListOf()
         transferList = mutableListOf()
 
@@ -104,7 +112,7 @@ ${Base64.encodeToString(keyPair.public.encoded, Base64.NO_WRAP)}
     }
 
     @Test
-    fun respondToTransferRequest_code100_addsTransferElementAndNotifiesAdapter() {
+    fun respondToTransferRequest_autoAcceptEnabled_addsTransferElementAndNotifiesAdapter() {
         val packet = SodtPackets.InitTransferPayload(
             code = 100,
             uuid = 999,
@@ -142,7 +150,7 @@ ${Base64.encodeToString(keyPair.public.encoded, Base64.NO_WRAP)}
 
         val toastText = ShadowToast.getTextOfLatestToast()
         assertNotNull(toastText)
-        assertTrue(toastText!!.contains("received document.pdf successfully"))
+        assertTrue(toastText!!.contains("reported successful transfer of document.pdf"))
     }
 
     @Test
@@ -202,7 +210,7 @@ ${Base64.encodeToString(keyPair.public.encoded, Base64.NO_WRAP)}
             position = 400L,
         )
 
-        wrapper.receiveFileData(dataPacket)
+        wrapper.receiveFileData(4u, dataPacket)
         ShadowLooper.idleMainLooper()
 
         assertEquals(600L, transferList[0].remainingSize)
@@ -230,7 +238,7 @@ ${Base64.encodeToString(keyPair.public.encoded, Base64.NO_WRAP)}
             position = 1000L,
         )
 
-        wrapper.receiveFileData(dataPacket)
+        wrapper.receiveFileData(4u, dataPacket)
         ShadowLooper.idleMainLooper()
 
         val toastText = ShadowToast.getTextOfLatestToast()
@@ -250,7 +258,7 @@ ${Base64.encodeToString(keyPair.public.encoded, Base64.NO_WRAP)}
     }
 
     @Test
-    fun respondToKeyExchange_updatesSharedPhraseInClientList() {
+    fun respondToKeyExchange_autoAcceptEnabled_updatesSharedPhraseInClientList() {
         clientList.add(ClientListElement(6u, "6", null))
 
         val peerManager = EncryptionManager()
