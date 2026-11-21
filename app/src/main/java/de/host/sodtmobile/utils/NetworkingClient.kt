@@ -26,7 +26,6 @@ class NetworkingClient(private val receivedEventListener: IDataReceivedEventList
     private val clientScope = CoroutineScope(Dispatchers.IO) // Scope for network operations
 
     private val TAG = "NetworkingClient"
-    private val secureRandom = SecureRandom()
 
     val isConnected: Boolean
         get() = socket?.isConnected == true && receiveJob?.isActive == true

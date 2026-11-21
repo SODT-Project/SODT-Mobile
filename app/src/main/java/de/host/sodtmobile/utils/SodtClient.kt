@@ -21,6 +21,7 @@ import kotlinx.coroutines.sync.withLock
 import java.io.FileOutputStream
 import java.nio.ByteBuffer
 import java.security.MessageDigest
+import kotlin.time.Duration.Companion.milliseconds
 
 /** * SodtClient is the main class for the Sodt client.
  * It handles the connection to the server, sending and receiving packets, and file transfers.
@@ -126,11 +127,12 @@ open class SodtClient(
         }
 
         CoroutineScope(Dispatchers.Default).launch {
-            delay(100) // wait for the packet to be sent
+            delay(100.milliseconds) // wait for the packet to be sent
             networkingClient.close()
             encryptionManager.close()
             connectedClients.clear()
             isInitiated = false
+            Globals.clientID = 0u
             LogsActivity.addLog("Disconnected from server")
             Log.d(TAG, "Disconnected from server")
         }
