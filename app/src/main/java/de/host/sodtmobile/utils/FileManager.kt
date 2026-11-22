@@ -149,18 +149,23 @@ class FileManager(private val contentResolver: ContentResolver) {
             return null
         }
 
-        // fill with dummy data to reserve space
-        pfd?.fileDescriptor?.let { fd ->
-            FileOutputStream(fd).use { fos ->
-                // ByteArray takes only int as size, so we need to write the size multiple times if it's larger than Int.MAX_VALUE
-                var size = dataPacket.filesize
-                while (size > Int.MAX_VALUE) {
-                    fos.write(ByteArray(Int.MAX_VALUE)) // write max size chunk
-                    size -= Int.MAX_VALUE.toLong()
+        try {
+            // fill with dummy data to reserve space
+            pfd?.fileDescriptor?.let { fd ->
+                FileOutputStream(fd).use { fos ->
+                    // ByteArray takes only int as size, so we need to write the size multiple times if it's larger than Int.MAX_VALUE
+                    var size = dataPacket.filesize
+                    while (size > Int.MAX_VALUE) {
+                        fos.write(ByteArray(Int.MAX_VALUE)) // write max size chunk
+                        size -= Int.MAX_VALUE.toLong()
+                    }
+                    fos.write(ByteArray(size.toInt()))
+                    fos.flush()
                 }
-                fos.write(ByteArray(size.toInt()))
-                fos.flush()
             }
+        } catch (e: Exception){
+            LogsActivity.addErrorLog(logTag,"Failed to create the file: ${e.message}")
+            return null
         }
 
         // make the file available for writing
