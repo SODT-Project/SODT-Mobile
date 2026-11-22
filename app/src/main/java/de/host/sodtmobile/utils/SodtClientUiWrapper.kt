@@ -56,7 +56,7 @@ class SodtClientUiWrapper(
         for (client in clients) {
             val clientId = client.toUByteOrNull()
             // check if clientId is null or if it is the server ID
-            if (clientId == null || clientId == Globals.SERVER_ID) {
+            if (clientId == null || clientId == SodtConstants.SERVER_ID) {
                 continue
             }
             // add client to the client list

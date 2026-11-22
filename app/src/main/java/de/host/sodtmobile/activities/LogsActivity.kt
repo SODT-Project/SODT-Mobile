@@ -1,6 +1,7 @@
 package de.host.sodtmobile.activities
 
 import android.os.Bundle
+import android.util.Log
 import android.widget.Button
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -13,8 +14,14 @@ import java.time.Instant
 class LogsActivity : AppCompatActivity() {
     companion object {
         private val logs = ArrayList<LogListElement>()
-        fun addLog(message: String) {
+        fun addLog(tag: String, message: String) {
             logs.add(LogListElement(Instant.now(), message))
+            Log.d(tag, message)
+        }
+
+        fun addErrorLog(tag: String, message: String){
+            logs.add(LogListElement(Instant.now(), message))
+            Log.e(tag, message)
         }
     }
     // UI elements

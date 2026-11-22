@@ -11,8 +11,13 @@ import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 import java.net.Socket
-import java.security.SecureRandom
 
+/**
+ * NetworkingClient is a class that handles the network communication with the server.
+ * @param receivedEventListener The listener to notify when data is received.
+ * @param serverAddress The address of the server to connect to.
+ * @param serverPort The port of the server to connect to.
+ */
 class NetworkingClient(private val receivedEventListener: IDataReceivedEventListener,
                        private val serverAddress: String,
                        private val serverPort: Int) {
@@ -21,12 +26,15 @@ class NetworkingClient(private val receivedEventListener: IDataReceivedEventList
     private var inputStream: InputStream? = null
     private var outputStream: OutputStream? = null
 
-    // Job to control the lifecycle of the continuous receive coroutine
+    // Job to control the lifecycle of the continuous receive-coroutine
     private var receiveJob: Job? = null
     private val clientScope = CoroutineScope(Dispatchers.IO) // Scope for network operations
 
-    private val TAG = "NetworkingClient"
+    private val logTag = "NetworkingClient"
 
+    /**
+     * Checks if the client is connected to the server and the receive-coroutine is active.
+     */
     val isConnected: Boolean
         get() = socket?.isConnected == true && receiveJob?.isActive == true
 
@@ -39,13 +47,11 @@ class NetworkingClient(private val receivedEventListener: IDataReceivedEventList
             socket = Socket(serverAddress, serverPort)
             inputStream = socket?.getInputStream()
             outputStream = socket?.getOutputStream()
-            LogsActivity.addLog("Connected to server: $serverAddress:$serverPort")
-            Log.d(TAG, "Connected to server: $serverAddress:$serverPort")
+            LogsActivity.addLog(logTag,"Connected to server: $serverAddress:$serverPort")
             startReceiving() // Start listening for messages immediately after connecting
             true
         } catch (e: IOException) {
-            LogsActivity.addLog("Error connecting to server: ${e.message}")
-            Log.e(TAG, "Error connecting to server: ${e.message}")
+            LogsActivity.addLog(logTag,"Error connecting to server: ${e.message}")
             close() // Ensure resources are closed on failure
             false
         }
@@ -61,7 +67,7 @@ class NetworkingClient(private val receivedEventListener: IDataReceivedEventList
      */
     suspend fun sendData(targetId: UByte, data: ByteArray): Boolean = withContext(Dispatchers.IO) {
         if (socket?.isConnected != true || outputStream == null) {
-            Log.e(TAG, "Not connected to server or output stream is null. Cannot send data.")
+            Log.e(logTag, "Not connected to server or output stream is null. Cannot send data.")
             return@withContext false
         }
         return@withContext try {
@@ -71,7 +77,7 @@ class NetworkingClient(private val receivedEventListener: IDataReceivedEventList
             outputStream?.flush() // Important to flush the stream to ensure data is sent
             true
         } catch (e: IOException) {
-            Log.e(TAG, "Error sending data: ${e.message}")
+            LogsActivity.addErrorLog(logTag, "Error sending data: ${e.message}")
             close() // Connection likely lost
             false
         }
@@ -106,26 +112,23 @@ class NetworkingClient(private val receivedEventListener: IDataReceivedEventList
                             accumulated.subList(0, 4096).clear()
                         }
                     } else if (bytesRead == -1) {
-                        LogsActivity.addLog("End of stream reached. Server closed connection.")
-                        Log.d(TAG, "End of stream reached. Server closed connection.")
+                        LogsActivity.addLog(logTag,"End of stream reached. Server closed connection.")
                         close()
                         break
                     }
                 } catch (e: IOException) {
                     if (isActive) {
-                        LogsActivity.addLog("Error receiving data: ${e.message}")
-                        Log.e(TAG, "Error receiving data: ${e.message}")
+                        LogsActivity.addErrorLog(logTag,"Error receiving data: ${e.message}")
                     }
                     close()
                     break
                 } catch (e: Exception) {
-                    LogsActivity.addLog("Unexpected error in receive loop: ${e.message}")
-                    Log.e(TAG, "Unexpected error in receive loop: ${e.message}")
+                    LogsActivity.addErrorLog(logTag,"Unexpected error in receive loop: ${e.message}")
                     close()
                     break
                 }
             }
-            Log.d(TAG, "Receive loop stopped.")
+            Log.d(logTag, "Receive loop stopped.")
         }
     }
 
@@ -139,7 +142,7 @@ class NetworkingClient(private val receivedEventListener: IDataReceivedEventList
     }
 
     /**
-     * Closes the connection and releases resources.
+     * Closes the connection and releases all resources of the NetworkingClient
      * This method should be called on a background thread.
      */
     fun close() {
@@ -148,11 +151,9 @@ class NetworkingClient(private val receivedEventListener: IDataReceivedEventList
             outputStream?.close()
             inputStream?.close()
             socket?.close()
-            LogsActivity.addLog("Connection closed to $serverAddress:$serverPort")
-            Log.d(TAG, "Connection closed.")
+            LogsActivity.addLog(logTag,"Connection closed to $serverAddress:$serverPort")
         } catch (e: IOException) {
-            LogsActivity.addLog("Error closing connection: ${e.message}")
-            Log.e(TAG, "Error closing connection: ${e.message}")
+            LogsActivity.addErrorLog(logTag,"Error closing connection: ${e.message}")
         } finally {
             socket = null
             inputStream = null

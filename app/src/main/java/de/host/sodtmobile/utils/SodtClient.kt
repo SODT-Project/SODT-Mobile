@@ -28,7 +28,7 @@ import kotlin.time.Duration.Companion.milliseconds
  * It uses the NetworkingClient to handle the network communication and the EncryptionManager to handle encryption.
  * @param serverAddress The address of the server to connect to.
  * @param serverPort The port of the server to connect to.
- * @param encryptionKey The key used for encryption.
+ * @param serverCertificate The certificate of the server to verify the server's identity.
  * @param contentResolver The ContentResolver used to access files.
  */
 open class SodtClient(
@@ -37,12 +37,11 @@ open class SodtClient(
     private val serverCertificate: String,
     private val contentResolver: ContentResolver
 ) {
-
-
+    private val logTag = "SodtClient"
     protected var encryptionManager: EncryptionManager = EncryptionManager()
     private var pingJob: Job? = null
-    private var sodtReceiver: SodtReceiver =
-        SodtReceiver(encryptionManager, this) // not ideal logic but it works
+    // not ideal logic but it works
+    private var sodtReceiver: SodtReceiver = SodtReceiver(encryptionManager, this)
     private var networkingClient: NetworkingClient =
         NetworkingClient(sodtReceiver, serverAddress, serverPort)
     private val connectedClients = mutableListOf<UByte>()
@@ -59,8 +58,15 @@ open class SodtClient(
      * Value is the URI of the file to be transferred.
      */
     private val pendingTransferRequests = mutableMapOf<Int, Uri>()
+    /**
+     * Map to store incoming transfers.
+     * Contains the file descriptor to write the received bytes into.
+     */
     private val incomingTransfers = mutableMapOf<Int, ParcelFileDescriptor>()
-
+    /**
+     * Map to store metadata for incoming transfers.
+     * Main use is to store the correct hash for the file, received in the transfer request.
+     */
     private val incomingTransferMetaData = mutableMapOf<Int, SodtPackets.InitTransferPayload>()
 
     /**
@@ -69,15 +75,18 @@ open class SodtClient(
      * Value is the remaining size of the file to be transferred. Therefore 0 means the transfer is complete.
      */
     internal val incomingTransfersProgress = mutableMapOf<Int, Long>()
+
+    /**
+     * Mutex to synchronize access to the incomingTransfersProgress map.
+     */
     private val incomingTransfersProgressMutex = Mutex()
-    private val TAG = "SodtClient"
     val isConnected: Boolean
         get() = networkingClient.isConnected
 
     init {
         CoroutineScope(Dispatchers.Default).launch {
             val connected = networkingClient.connect()
-            if (connected == true) {
+            if (connected) {
                 initialDiscovery()
                 isInitiated = true
             }
@@ -96,14 +105,19 @@ open class SodtClient(
             val encryptedPacket = encryptionManager.encryptAesGcm(receiverID, dataPaket)
 
             if (encryptedPacket == null) {
-                LogsActivity.addLog("Failed to encrypt packet for client $receiverID")
-                Log.e(TAG, "Failed to encrypt packet for client $receiverID")
+                LogsActivity.addErrorLog(logTag,"Failed to encrypt packet for client $receiverID")
                 return@launch
             }
             networkingClient.sendData(receiverID, encryptedPacket)
         }
     }
 
+    /**
+     * Sends an unencrypted packet to a specific client.
+     * Used for discovery and key exchange packets.
+     * @param receiverID The ID of the client to send the packet to.
+     * @param dataPaket The data packet to be sent.
+     */
     protected fun sendUnencryptedPacket(receiverID: UByte, dataPaket: SodtPackets.IBasePacket) {
         CoroutineScope(Dispatchers.Default).launch {
             val cryptoHeader = ByteArray(SodtConstants.TAG_SIZE + SodtConstants.NONCE_SIZE)
@@ -122,8 +136,8 @@ open class SodtClient(
         val payload = SodtPackets.DisconnectPayload(
             code = 100,
         )
-        if (encryptionManager.hasClientSessionKeyFor(Globals.SERVER_ID)) {
-            sendEncryptedAesPacket(Globals.SERVER_ID, payload)
+        if (encryptionManager.hasClientSessionKeyFor(SodtConstants.SERVER_ID)) {
+            sendEncryptedAesPacket(SodtConstants.SERVER_ID, payload)
         }
 
         CoroutineScope(Dispatchers.Default).launch {
@@ -133,20 +147,19 @@ open class SodtClient(
             connectedClients.clear()
             isInitiated = false
             Globals.clientID = 0u
-            LogsActivity.addLog("Disconnected from server")
-            Log.d(TAG, "Disconnected from server")
+            LogsActivity.addLog(logTag,"Disconnected from server")
         }
     }
 
     /**
      * Requests a key exchange with the specified receiver.
+     * @param receiverID The ID of the client to exchange keys with.
      */
     open fun requestKeyExchange(receiverID: UByte) {
         require(receiverID != Globals.clientID) { "Cannot request key exchange with oneself." }
         require(connectedClients.contains(receiverID)) { "Client $receiverID is not connected." }
 
-        LogsActivity.addLog("Requesting key exchange with $receiverID")
-        Log.d(TAG, "Requesting key exchange with $receiverID")
+        LogsActivity.addLog(logTag,"Requesting key exchange with $receiverID")
 
         val payload = SodtPackets.KeyExchangePayload(
             code = 100,
@@ -155,50 +168,49 @@ open class SodtClient(
         sendUnencryptedPacket(receiverID, payload)
     }
 
+    /**
+     * Handles the response to a key exchange request.
+     * If the response code is 200 an AES session key is generated and stored in the encryption manager.
+     */
     open fun respondToKeyExchange(remoteID: UByte, requestPacket: SodtPackets.KeyExchangePayload) {
         // handle possible errors
         if (requestPacket.key.isEmpty()) {
-            LogsActivity.addLog("Key exchange failed with ${remoteID}: Key is empty")
-            Log.e(TAG, "Key exchange failed: Key is empty")
+            LogsActivity.addErrorLog(logTag,"Key exchange failed with ${remoteID}: Key is empty")
             return
         }
         when (requestPacket.code) {
             100 -> {
-                LogsActivity.addLog("Key exchange requested by: $remoteID")
-                Log.d(TAG, "Key exchange requested by : $remoteID")
+                LogsActivity.addLog(logTag,"Key exchange requested by: $remoteID")
                 acceptKeyExchange(remoteID, requestPacket)
                 return
             }
-
             200 -> {
-                LogsActivity.addLog("Key exchange successful with $remoteID")
-                Log.d(TAG, "Key exchange successful with $remoteID")
+                LogsActivity.addLog(logTag,"Key exchange successful with $remoteID")
+                // shared phrase is also generated and stored in the encryption manager
+                encryptionManager.generateAndStoreAesSessionKeyFromKeyExchange(remoteID, requestPacket.key)
+                return
             }
-
             300 -> {
                 // remote client denied the key exchange request
-                LogsActivity.addLog("Key exchange denied by $remoteID")
-                Log.d(TAG, "Key exchange denied by $remoteID")
+                LogsActivity.addLog(logTag,"Key exchange denied by $remoteID")
                 return
             }
             400 -> {
                 // remote client failed the key exchange request
-                LogsActivity.addLog("Key exchange failed with $remoteID")
-                Log.d(TAG, "Key exchange failed with $remoteID")
+                LogsActivity.addLog(logTag,"Key exchange failed with $remoteID")
                 return
             }
-
             else -> {
-                LogsActivity.addLog("Unknown key exchange code: ${requestPacket.code}")
-                Log.e(TAG, "Unknown key exchange code: ${requestPacket.code}")
+                LogsActivity.addLog(logTag,"Unknown key exchange code: ${requestPacket.code}")
                 return
             }
         }
-        // generate key exchange pair from dataPacket (if code was 100 or 200)
-        // shared phrase is also generated and stored in the encryption manager
-        encryptionManager.generateAndStoreAesSessionKeyFromKeyExchange(remoteID, requestPacket.key)
     }
 
+    /**
+     * Handles a received key exchange request by sending a code 200 key exchange back.
+     * Also generates and stores an AES session key in the encryption manager.
+     */
     open fun acceptKeyExchange(remoteID: UByte, requestPacket: SodtPackets.KeyExchangePayload) {
         val responsePacket = SodtPackets.KeyExchangePayload(
             code = 200,
@@ -208,9 +220,11 @@ open class SodtClient(
         encryptionManager.generateAndStoreAesSessionKeyFromKeyExchange(remoteID, requestPacket.key)
     }
 
+    /**
+     * Denies a key exchange request by sending a code 300 key exchange back.
+     */
     open fun denyKeyExchange(remoteID: UByte) {
-        LogsActivity.addLog("Denying key exchange request from $remoteID")
-        Log.d(TAG, "Denying key exchange request from $remoteID")
+        LogsActivity.addLog(logTag,"Denying key exchange request from $remoteID")
         val responsePacket = SodtPackets.KeyExchangePayload(
             code = 300,
             key = ""
@@ -224,7 +238,7 @@ open class SodtClient(
      */
     open fun receiveClientList(dataPacket: SodtPackets.ClientListPayload) {
         if (dataPacket.clients == null) {
-            Log.w(TAG, "Empty client list")
+            Log.w(logTag, "Empty client list")
             return
         }
         val clients =
@@ -235,8 +249,7 @@ open class SodtClient(
         for (client in connectedClients) {
             if (!clients.contains(client.toString())) {
                 // remove client from sessionKeys map
-                LogsActivity.addLog("Removing client $client from client list")
-                Log.d(TAG, "Removing client $client from client list")
+                LogsActivity.addLog(logTag,"Removing client $client from client list")
                 encryptionManager.removeSessionKey(client)
             }
         }
@@ -244,7 +257,7 @@ open class SodtClient(
         for (client in clients) {
             val clientId = client.toUByteOrNull()
             // check if clientId is null or if it is the server ID
-            if (clientId == null || clientId == Globals.SERVER_ID || encryptionManager.hasClientSessionKeyFor(clientId) || clientId == Globals.clientID) {
+            if (clientId == null || clientId == SodtConstants.SERVER_ID || encryptionManager.hasClientSessionKeyFor(clientId) || clientId == Globals.clientID) {
                 continue
             }
             connectedClients.add(clientId)
@@ -258,30 +271,30 @@ open class SodtClient(
      */
     fun receiveDiscoveryResponse(dataPacket: SodtPackets.DiscoveryPayload) {
         if (dataPacket.id.toInt() == 0 || dataPacket.signature == null) {
-            LogsActivity.addLog("Illegal Discovery response received.")
+            LogsActivity.addErrorLog(logTag,"Illegal Discovery response received.")
             disconnect()
             return
         }
         if (dataPacket.code >= 300) {
-            LogsActivity.addLog("Discovery response failed with code ${dataPacket.code}")
+            LogsActivity.addErrorLog(logTag,"Discovery response failed with code ${dataPacket.code}")
             disconnect()
             return
         }
 
         if (encryptionManager.verifySignature(serverCertificate, dataPacket)) {
-            LogsActivity.addLog("Discovery verified")
-            Log.d(TAG, "Discovery verified")
+            LogsActivity.addLog(logTag,"Discovery verified")
         } else {
-            LogsActivity.addLog("Discovery not verified") // TODO add to UI
-            Log.w(TAG, "Discovery not verified")
+            LogsActivity.addErrorLog(logTag,"Discovery not verified") // TODO add to UI
+
+
+
         }
-        encryptionManager.generateAndStoreAesSessionKeyFromKeyExchange(Globals.SERVER_ID, dataPacket.publicKey)
+        encryptionManager.generateAndStoreAesSessionKeyFromKeyExchange(SodtConstants.SERVER_ID, dataPacket.publicKey)
 
 
         Globals.clientID = dataPacket.id
-        LogsActivity.addLog("Your client ID is ${dataPacket.id}")
-        Log.d(TAG, "Your ID: ${dataPacket.id}")
-        startPinging()
+        LogsActivity.addLog(logTag,"Your client ID is ${dataPacket.id}")
+        startPinging() // start the pinging coroutine to the server to ensure connection is still alive
     }
 
 

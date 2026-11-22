@@ -1,5 +1,8 @@
 package de.host.sodtmobile.utils
 
+/**
+ * SodtConstants is a singleton object that contains constants used in the SODT-Protocol.
+ */
 object SodtConstants {
     const val SERVER_ID: UByte = 1u
     const val FULL_MESSAGE_SIZE = 4096
