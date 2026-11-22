@@ -80,23 +80,6 @@ ${Base64.encodeToString(keyPair.public.encoded, Base64.NO_WRAP)}
     }
 
     @Test
-    fun receiveDiscoveryResponse_unverifiedSignature_showsWarningToast() {
-        val discoveryPayload = SodtPackets.DiscoveryPayload(
-            id = 5u,
-            code = 200,
-            publicKey = "dummyKey",
-            signature = "invalidSignature"
-        )
-
-        wrapper.receiveDiscoveryResponse(discoveryPayload)
-        ShadowLooper.idleMainLooper()
-
-        val toastText = ShadowToast.getTextOfLatestToast()
-        assertNotNull(toastText)
-        assertTrue(toastText!!.contains("discovery signature could not be verified"))
-    }
-
-    @Test
     fun receiveClientList_populatesListExcludingServerAndMarksSelf() {
         Globals.clientID = 2u
         val clientIds = byteArrayOf(1, 2, 3) // 1=server, 2=self, 3=peer

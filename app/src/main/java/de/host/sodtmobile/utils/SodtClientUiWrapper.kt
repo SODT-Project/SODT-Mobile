@@ -14,7 +14,6 @@ import de.host.sodtmobile.elements.TransferElement
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 /** * SodtClientUiWrapper is a wrapper around the SodtClient that provides additional functionality for the UI.
  * It handles the client list and transfer list, and updates the UI accordingly.
@@ -42,7 +41,7 @@ class SodtClientUiWrapper(
 ) : SodtClient(serverAddress, serverPort, encryptionKey, context.contentResolver) {
     var selectedClient: ClientListElement? = null
 
-    private val TAG = "SodtClientUiWrapper"
+    private val logTag = "SodtClientUiWrapper"
 
     override fun receiveDiscoveryResponse(dataPacket: SodtPackets.DiscoveryPayload) {
         if (dataPacket.id.toInt() != 0 && dataPacket.signature != null && dataPacket.code < 300) {
@@ -57,7 +56,7 @@ class SodtClientUiWrapper(
 
     override fun receiveClientList(dataPacket: SodtPackets.ClientListPayload) {
         if (dataPacket.clients == null) {
-            Log.w(TAG, "Empty client list")
+            Log.w(logTag, "Empty client list")
             return
         }
         val clients = org.bouncycastle.util.encoders.Base64.decode(dataPacket.clients).joinToString(",").split(",")
@@ -162,7 +161,7 @@ class SodtClientUiWrapper(
                 }
             }
             else -> {
-                LogsActivity.addErrorLog(TAG, "File transfer request for ${dataPacket.filename} failed with code: ${dataPacket.code}")
+                LogsActivity.addErrorLog(logTag, "File transfer request for ${dataPacket.filename} failed with code: ${dataPacket.code}")
             }
         }
     }
@@ -172,7 +171,7 @@ class SodtClientUiWrapper(
         // find the transfer in the list (not ideal but enough to fulfill the requirements. Use a map later)
         val transferListIndex = transferList.indexOfFirst { it.transferId == dataPacket.uuid }
         if (transferListIndex == -1) {
-            LogsActivity.addErrorLog(TAG, "Transfer with UUID ${dataPacket.uuid} not found in transfer list")
+            LogsActivity.addErrorLog(logTag, "Transfer with UUID ${dataPacket.uuid} not found in transfer list")
             return
         }
         // update the transfer list and notify the adapter
@@ -247,6 +246,9 @@ class SodtClientUiWrapper(
         }
     }
 
+    /**
+     * Updates the shared phrase for a client in the client list visually.
+     */
     private fun updateClientSharedPhrase(remoteID: UByte) {
         val clientIndex = clientList.indexOfFirst { it.clientId == remoteID }
         if (clientIndex != -1) {
