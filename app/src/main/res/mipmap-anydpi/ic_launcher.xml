@@ -4,10 +4,10 @@
     <foreground>
         <inset
             android:drawable="@drawable/sodt_logo_white"
-            android:insetLeft="145dp"
-            android:insetTop="145dp"
-            android:insetRight="145dp"
-            android:insetBottom="145dp" />
+            android:insetLeft="25dp"
+            android:insetTop="25dp"
+            android:insetRight="25dp"
+            android:insetBottom="25dp" />
     </foreground>
     <monochrome android:drawable="@drawable/sodt_logo_white" />
 </adaptive-icon>
