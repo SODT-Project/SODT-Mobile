@@ -44,6 +44,17 @@ class SodtClientUiWrapper(
 
     private val TAG = "SodtClientUiWrapper"
 
+    override fun receiveDiscoveryResponse(dataPacket: SodtPackets.DiscoveryPayload) {
+        if (dataPacket.id.toInt() != 0 && dataPacket.signature != null && dataPacket.code < 300) {
+            if (!encryptionManager.verifySignature(serverCertificate, dataPacket)) {
+                CoroutineScope(Dispatchers.Main).launch {
+                    Toast.makeText(context, R.string.toast_discovery_not_verified, Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+        super.receiveDiscoveryResponse(dataPacket)
+    }
+
     override fun receiveClientList(dataPacket: SodtPackets.ClientListPayload) {
         if (dataPacket.clients == null) {
             Log.w(TAG, "Empty client list")
@@ -151,7 +162,7 @@ class SodtClientUiWrapper(
                 }
             }
             else -> {
-                LogsActivity.addLog("File transfer request for ${dataPacket.filename} failed with code: ${dataPacket.code}")
+                LogsActivity.addErrorLog(TAG, "File transfer request for ${dataPacket.filename} failed with code: ${dataPacket.code}")
             }
         }
     }
@@ -161,8 +172,7 @@ class SodtClientUiWrapper(
         // find the transfer in the list (not ideal but enough to fulfill the requirements. Use a map later)
         val transferListIndex = transferList.indexOfFirst { it.transferId == dataPacket.uuid }
         if (transferListIndex == -1) {
-            LogsActivity.addLog("Transfer with UUID ${dataPacket.uuid} not found in transfer list")
-            Log.w(TAG, "Transfer with UUID ${dataPacket.uuid} not found in transfer list")
+            LogsActivity.addErrorLog(TAG, "Transfer with UUID ${dataPacket.uuid} not found in transfer list")
             return
         }
         // update the transfer list and notify the adapter

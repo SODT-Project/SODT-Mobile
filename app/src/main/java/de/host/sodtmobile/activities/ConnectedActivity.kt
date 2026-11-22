@@ -78,7 +78,7 @@ class ConnectedActivity : AppCompatActivity() {
         // sleep for a short time to allow the client to connect
         Thread.sleep(150)
         if (!sodtClient.isInitiated) {
-            LogsActivity.addLog("Connection Failed. Is the server online?")
+            LogsActivity.addErrorLog("ConnectedActivity", "Connection Failed. Is the server online?")
             Toast.makeText(this, "Connection Failed. Is the server online?", Toast.LENGTH_LONG).show()
             disconnect() // Close the activity if the client is not initiated
             finish()

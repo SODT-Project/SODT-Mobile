@@ -35,8 +35,7 @@ class SodtReceiver (
         val statusCode = jsonObject["code"].asInt
 
         if (statusCode == 400) {
-            LogsActivity.addLog("Error request received (Code 400): $json")
-            Log.e(TAG, "Invalid Request")
+            LogsActivity.addErrorLog(TAG, "Error request received (Code 400): $json")
             return
         }
 
@@ -73,8 +72,7 @@ class SodtReceiver (
         }
 
         if (decryptedMessage == null) {
-            LogsActivity.addLog("Decryption failed for source ID: $sourceId")
-            Log.e(TAG, "Decryption failed for source ID: $sourceId")
+            LogsActivity.addErrorLog(TAG, "Decryption failed for source ID: $sourceId")
             return
         }
         // the first two bytes are the size of the message

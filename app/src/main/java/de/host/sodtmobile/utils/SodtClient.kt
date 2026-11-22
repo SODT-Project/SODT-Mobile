@@ -34,12 +34,16 @@ import kotlin.time.Duration.Companion.milliseconds
 open class SodtClient(
     serverAddress: String,
     serverPort: Int,
-    private val serverCertificate: String,
+    protected val serverCertificate: String,
     private val contentResolver: ContentResolver
 ) {
     private val logTag = "SodtClient"
-    protected var encryptionManager: EncryptionManager = EncryptionManager()
+    protected val encryptionManager = EncryptionManager() //TODO val ok?
+
+    private val fileManager = FileManager(contentResolver)
+
     private var pingJob: Job? = null
+    private val pingDelay = 3000.milliseconds
     // not ideal logic but it works
     private var sodtReceiver: SodtReceiver = SodtReceiver(encryptionManager, this)
     private var networkingClient: NetworkingClient =
@@ -83,6 +87,9 @@ open class SodtClient(
     val isConnected: Boolean
         get() = networkingClient.isConnected
 
+    /**
+     * On init connect to the server and send initial Discovery
+     */
     init {
         CoroutineScope(Dispatchers.Default).launch {
             val connected = networkingClient.connect()
@@ -123,6 +130,20 @@ open class SodtClient(
             val cryptoHeader = ByteArray(SodtConstants.TAG_SIZE + SodtConstants.NONCE_SIZE)
             networkingClient.sendData(receiverID, cryptoHeader + dataPaket.toByteArray())
         }
+    }
+
+    /**
+     * Sends an initial discovery packet (unencrypted) to the server.
+     */
+    private fun initialDiscovery() {
+
+        val payload = SodtPackets.DiscoveryPayload(
+            id = 0u,
+            code = 100,
+            publicKey = encryptionManager.createEcdhKeyPair(SodtConstants.SERVER_ID),
+            signature = null
+        )
+        sendUnencryptedPacket(SodtConstants.SERVER_ID, payload)
     }
 
     /** Disconnects from the server.
@@ -269,7 +290,7 @@ open class SodtClient(
      * This method sets the client ID and logs it.
      * @param dataPacket The discovery payload received from the server.
      */
-    fun receiveDiscoveryResponse(dataPacket: SodtPackets.DiscoveryPayload) {
+    open fun receiveDiscoveryResponse(dataPacket: SodtPackets.DiscoveryPayload) {
         if (dataPacket.id.toInt() == 0 || dataPacket.signature == null) {
             LogsActivity.addErrorLog(logTag,"Illegal Discovery response received.")
             disconnect()
@@ -284,10 +305,7 @@ open class SodtClient(
         if (encryptionManager.verifySignature(serverCertificate, dataPacket)) {
             LogsActivity.addLog(logTag,"Discovery verified")
         } else {
-            LogsActivity.addErrorLog(logTag,"Discovery not verified") // TODO add to UI
-
-
-
+            LogsActivity.addErrorLog(logTag,"Discovery not verified")
         }
         encryptionManager.generateAndStoreAesSessionKeyFromKeyExchange(SodtConstants.SERVER_ID, dataPacket.publicKey)
 
@@ -297,27 +315,19 @@ open class SodtClient(
         startPinging() // start the pinging coroutine to the server to ensure connection is still alive
     }
 
-
-    private fun initialDiscovery() {
-
-        val payload = SodtPackets.DiscoveryPayload(
-            id = 0u,
-            code = 100,
-            publicKey = encryptionManager.createEcdhKeyPair(SodtConstants.SERVER_ID),
-            signature = null
-        )
-        sendUnencryptedPacket(SodtConstants.SERVER_ID, payload)
-    }
+    /**
+     * Starts the pinging coroutine to the server.
+     * The server needs at least one ping every 10 seconds to keep the connection alive.
+     */
     fun startPinging() {
         // Stop any existing ping job before starting a new one
         pingJob?.cancel()
         // "Fire and forget" - launches a new coroutine
         pingJob = CoroutineScope(Dispatchers.Default).launch {
             // Equivalent to while(client.Connected)
-            // isActive ensures the loop stops if the coroutine is cancelled
-
+            // isActive ensures the loop stops if the coroutine is canceled
             while (isActive) {
-                delay(3000) // Non-blocking delay (Equivalent to Task.Delay)
+                delay(pingDelay) // Non-blocking delay (Equivalent to Task.Delay)
                 if (!isInitiated) {
                     continue
                 }
@@ -330,55 +340,26 @@ open class SodtClient(
             }
         }
     }
+
     /**
-     * Calculates the SHA-256 hash of a file provided via Uri.
-     * Returns the base64 encoded hash as a String.
+     * Creates and sends a file transfer request to the client that should receive the file.
+     * @param receiverID The ID of the client that should receive the file.
+     * @param fileUri The URI of the file to be sent.
      */
-    private fun getFileHash(fileUri: Uri): String {
-        return try {
-            val digest = MessageDigest.getInstance("SHA-256")
-            contentResolver.openInputStream(fileUri)?.use { inputStream ->
-                val buffer = ByteArray(8192)
-                var bytesRead: Int
-                while (inputStream.read(buffer).also { bytesRead = it } != -1) {
-                    digest.update(buffer, 0, bytesRead)
-                }
-            }
-            // Convert byte array to Hex String
-            Base64.encodeToString(digest.digest(), Base64.NO_WRAP)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to calculate hash for $fileUri", e)
-            throw e;
-        }
-    }
-
-    private fun getFileName(fileUri: Uri): String{
-        return (contentResolver.query(fileUri, null, null, null, null)?.use { cursor ->
-            val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-            if (index != -1 && cursor.moveToFirst()) {
-                cursor.getString(index)
-            } else {
-                null
-            }
-        }) ?: "unknown_file"
-    }
-
     fun requestFileTransfer(receiverID: UByte, fileUri: Uri) {
         val payload = SodtPackets.InitTransferPayload(
             code = 100,
-            filename = getFileName(fileUri),
+            filename = fileManager.getFileName(fileUri),
             filesize = contentResolver.openAssetFileDescriptor(fileUri, "r")?.use { it.length } ?: -1L,
-            filehash = getFileHash(fileUri)
+            filehash = fileManager.getFileHash(fileUri)
         )
 
         if (payload.filesize <= 0) {
-            LogsActivity.addLog("Invalid file size for ${payload.filename}")
-            Log.e(TAG, "Invalid file size for ${payload.filename}")
+            LogsActivity.addErrorLog(logTag, "Invalid file size for ${payload.filename}")
             return
         }
 
-        pendingTransferRequests.put(payload.uuid, fileUri)
-        // send
+        pendingTransferRequests[payload.uuid] = fileUri
         sendEncryptedAesPacket(receiverID, payload)
     }
 
@@ -386,27 +367,18 @@ open class SodtClient(
      * Responds to a file transfer request.
      * This method handles the initial transfer request and sends the appropriate response.
      * It also starts the file transfer if the request is accepted.
+     * @param remoteID The ID of the client requesting the file transfer.
      * @param dataPacket The init transfer payload received from the client.
      */
     open fun respondToTransferRequest(remoteID: UByte, dataPacket: SodtPackets.InitTransferPayload) {
         when (dataPacket.code) {
             100 -> {
-                LogsActivity.addLog(
-                    "Transfer request from $remoteID for file ${dataPacket.filename} of size ${dataPacket.filesize}"
-                )
-                Log.d(
-                    TAG,
-                    "Transfer request from $remoteID for file ${dataPacket.filename} of size ${dataPacket.filesize}"
-                )
+                LogsActivity.addLog(logTag, "Transfer request from $remoteID for file ${dataPacket.filename} of size ${dataPacket.filesize}")
                 acceptTransferRequest(remoteID, dataPacket)
             }
 
             200 -> {
-                LogsActivity.addLog("Transfer request accepted for file ${dataPacket.filename} of size ${dataPacket.filesize}")
-                Log.d(
-                    TAG,
-                    "Transfer request accepted for file ${dataPacket.filename} of size ${dataPacket.filesize}"
-                )
+                LogsActivity.addLog(logTag, "Transfer request accepted for file ${dataPacket.filename} of size ${dataPacket.filesize}")
                 sendFile(remoteID, dataPacket.uuid)
                 // rest is handled in sendFile method
             }
@@ -415,25 +387,29 @@ open class SodtClient(
             400 -> {cleanIncomingTransfers(dataPacket.uuid)} // message handed in UIWrapper
 
             else -> {
-                LogsActivity.addLog("Transfer request failed. Code: ${dataPacket.code}")
-                Log.e(TAG, "Transfer request failed. Code: ${dataPacket.code}")
+                LogsActivity.addErrorLog(logTag, "Transfer request failed. Code: ${dataPacket.code}")
                 return
             }
         }
     }
 
+    /**
+     * Accepts a file transfer request by sending the appropriate response.
+     * Also creates a new save stream for the file.
+     * Furthermore, creates the entries in the incomingTransfers, incomingTransfersProcess and incomingTransferMetaData maps.
+     * @param remoteID The ID of the client requesting the file transfer.
+     * @param dataPacket The init transfer payload received from the client.
+     */
     open fun acceptTransferRequest(remoteID: UByte, dataPacket: SodtPackets.InitTransferPayload) {
         // check if the file already exists in incoming transfers
         if (incomingTransfers.containsKey(dataPacket.uuid)) {
-            LogsActivity.addLog("Transfer request for file ${dataPacket.filename} already exists")
-            Log.w(TAG, "Transfer request for file ${dataPacket.filename} already exists")
+            LogsActivity.addErrorLog(logTag, "Transfer request for file ${dataPacket.filename} already exists")
             return
         }
         // add the transfer request to incoming transfers
-        val file = createNewSaveStream(dataPacket)
+        val file = fileManager.createNewSaveStream(dataPacket)
         if (file == null) {
-            LogsActivity.addLog("Failed to create new file for transfer request")
-            Log.e(TAG, "Failed to create new file for transfer request")
+            LogsActivity.addErrorLog(logTag, "Failed to create new file for transfer request")
             return
         }
         // save the transfer request
@@ -451,9 +427,13 @@ open class SodtClient(
         sendEncryptedAesPacket(remoteID, responsePacket)
     }
 
+    /**
+     * Denies a file transfer request by sending the appropriate response.
+     * @param remoteID The ID of the client requesting the file transfer.
+     * @param dataPacket The init transfer payload received from the client.
+     */
     open fun denyTransferRequest(remoteID: UByte, dataPacket: SodtPackets.InitTransferPayload) {
-        LogsActivity.addLog("Denying transfer request for file ${dataPacket.filename} from $remoteID")
-        Log.d(TAG, "Denying transfer request for file ${dataPacket.filename} from $remoteID")
+        LogsActivity.addLog(logTag, "Denying transfer request for file ${dataPacket.filename} from $remoteID")
         cleanIncomingTransfers(dataPacket.uuid)
         val responsePacket = SodtPackets.InitTransferPayload(
             code = 300,
@@ -463,130 +443,6 @@ open class SodtClient(
             filehash = dataPacket.filehash
         )
         sendEncryptedAesPacket(remoteID, responsePacket)
-    }
-
-    /**
-     * Checks if a file with the given name is present in the device's Downloads directory.
-     *
-     * This function queries the MediaStore.Downloads content provider to get a list of
-     * filenames in the external Downloads directory. It then checks if the provided
-     * `fileName` exists in that list.
-     *
-     * Note: This function is suitable for API level 29 and above, as it uses
-     * `MediaStore.Downloads.EXTERNAL_CONTENT_URI`.
-     *
-     * @param fileName The name of the file to search for (e.g., "my_document.pdf").
-     * @return `true` if a file with the specified name exists in the Downloads directory,
-     *         `false` otherwise.
-     */
-    private fun isPresentInDownloads(fileName: String): Boolean {
-        // URI for external Download collection (API 29+)
-        val downloadsUri = MediaStore.Downloads.EXTERNAL_CONTENT_URI
-
-        // We only need the DISPLAY_NAME column to get the filename
-        val projection = arrayOf(MediaStore.Downloads.DISPLAY_NAME)
-        val fileNames = mutableListOf<String>()
-
-        contentResolver.query(
-            downloadsUri,
-            projection,
-            /* no selection = all rows */ null,
-            /* no selection args */ null,
-            /* optional sort: most recent first */ "${MediaStore.Downloads.DATE_ADDED} DESC"
-        )?.use { cursor ->
-            val nameIdx = cursor.getColumnIndexOrThrow(MediaStore.Downloads.DISPLAY_NAME)
-            while (cursor.moveToNext()) {
-                fileNames += cursor.getString(nameIdx)
-            }
-        }
-
-        return fileNames.contains(fileName)
-    }
-
-    /**
-     * Creates a new save stream for the file transfer.
-     * This method creates a new file in the Downloads directory and returns an OutputStream to write the file data.
-     * Uses MediaStore to create a new file in the Downloads directory. (permission is not needed for Android 10+)
-     */
-    private fun createNewSaveStream(dataPacket: SodtPackets.InitTransferPayload): ParcelFileDescriptor? {
-        // create filename
-        val fileNameWithoutExtension = dataPacket.filename.substringBeforeLast('.')
-        val extension = dataPacket.filename.substringAfterLast('.', "").substringBefore(" ").lowercase()
-        var renamedFile = dataPacket.filename
-        var counter = 1
-        while (isPresentInDownloads(renamedFile)){
-            renamedFile = "$fileNameWithoutExtension ${counter}.$extension"
-            counter++
-        }
-
-        // create file
-        val contentValues = ContentValues().apply {
-            put(MediaStore.Downloads.DISPLAY_NAME, renamedFile)
-            put(MediaStore.Downloads.MIME_TYPE, getMimeTypeForExtension(extension))
-            put(MediaStore.Downloads.IS_PENDING, 1)
-            put(MediaStore.Downloads.SIZE, dataPacket.filesize)
-        }
-
-        val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
-            ?: run {
-                LogsActivity.addLog("Failed to create new file in Downloads directory")
-                Log.e(TAG, "Failed to create new file in Downloads directory")
-                return null
-            }
-
-        val pfd = try {
-            contentResolver.openFileDescriptor(uri, "rw")
-        } catch (e: Exception) {
-            LogsActivity.addLog("Failed to open file descriptor: ${e.message}")
-            Log.e(TAG, "Failed to open file descriptor", e)
-            return null
-        }
-
-        // fill with dummy data to reserve space
-        pfd?.fileDescriptor?.let { fd ->
-            FileOutputStream(fd).use { fos ->
-                // ByteArray takes only int as size, so we need to write the size multiple times if it's larger than Int.MAX_VALUE
-                var size = dataPacket.filesize
-                while (size > Int.MAX_VALUE) {
-                    fos.write(ByteArray(Int.MAX_VALUE)) // write max size chunk
-                    size -= Int.MAX_VALUE.toLong()
-                }
-                fos.write(ByteArray(size.toInt()))
-                fos.flush()
-            }
-        }
-
-        // make the file available for writing
-        contentValues.clear()
-        contentValues.put(MediaStore.Downloads.IS_PENDING, 0)
-        contentResolver.update(uri, contentValues, null, null)
-
-        return try {
-            contentResolver.openFileDescriptor(uri, "rw")
-        } catch (e: Exception) {
-            LogsActivity.addLog("Failed to reopen file descriptor: ${e.message}")
-            Log.e(TAG, "Failed to reopen file descriptor", e)
-            null
-        }
-    }
-
-    /** * Detects the MIME type of a file based on its extension.
-     * This method checks the file extension and returns the corresponding MIME type.
-     * If the extension is not recognized, it tries to use the default MIME type.
-     * This method is needed because is auto-detection of MIME type is not always reliable,
-     * @param fileName The name of the file to detect the MIME type for.
-     * @return The MIME type of the file as an Int.
-     */
-    private fun getMimeTypeForExtension(extension: String): Int {
-        return when (extension.replace(".","").lowercase()) {
-            "jpg", "jpeg" -> MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE
-            "png" -> MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE
-            "gif" -> MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE
-            "mp4" -> MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO
-            "mp3" -> MediaStore.Files.FileColumns.MEDIA_TYPE_AUDIO
-            "pdf", "txt", "html", "htm", "json", "xml" -> MediaStore.Files.FileColumns.MEDIA_TYPE_DOCUMENT
-            else -> mimeType // try to auto-detect the MIME type
-        }
     }
 
     /**
@@ -600,8 +456,7 @@ open class SodtClient(
     protected open fun sendFile(targetId: UByte, uuid: Int) {
         val fileUri = pendingTransferRequests[uuid]
         if (fileUri == null) {
-            LogsActivity.addLog("No file URI found for UUID $uuid")
-            Log.e(TAG, "No file URI found for UUID $uuid")
+            LogsActivity.addErrorLog(logTag, "No file URI found for UUID $uuid")
             return
         }
         CoroutineScope(Dispatchers.IO).launch {
@@ -623,18 +478,15 @@ open class SodtClient(
                         position += bytesRead
                         sendEncryptedAesPacket(targetId, dataPacket)
                     }
-                    LogsActivity.addLog("Send File completed for UUID $uuid")
-                    Log.d(TAG, "Send File completed for UUID $uuid")
+                    LogsActivity.addLog(logTag, "Send File completed for UUID $uuid")
                 }
             } catch (e: Exception) {
-                LogsActivity.addLog("Error while reading or sending file: ${e.message}")
-                Log.e(TAG, "Error while reading or sending file: ${e.message}")
+                LogsActivity.addErrorLog(logTag, "Error while reading or sending file: ${e.message}")
             } finally {
                 pendingTransferRequests.remove(uuid)
             }
         }
-        LogsActivity.addLog("Sending file with UUID $uuid from URI $fileUri")
-        Log.d(TAG, "Sending file with UUID $uuid from URI $fileUri")
+        LogsActivity.addLog(logTag, "Sending file with UUID $uuid from URI $fileUri")
     }
 
     /**
@@ -646,14 +498,12 @@ open class SodtClient(
     open fun receiveFileData(remoteId: UByte, dataPacket: SodtPackets.TransferDataPayload) {
         // check if the transfer request exists
         if (!incomingTransfers.containsKey(dataPacket.uuid)) {
-            LogsActivity.addLog("No accepted transfer found for UUID ${dataPacket.uuid}")
-            Log.e(TAG, "No accepted transfer found for UUID ${dataPacket.uuid}")
+            LogsActivity.addErrorLog(logTag, "No accepted transfer found for UUID ${dataPacket.uuid}")
             return
         }
         // get the output stream for the file
         val file = incomingTransfers[dataPacket.uuid] ?: run {
-            LogsActivity.addLog("No output stream found for UUID ${dataPacket.uuid}")
-            Log.e(TAG, "No output stream found for UUID ${dataPacket.uuid}")
+            LogsActivity.addErrorLog(logTag, "No output stream found for UUID ${dataPacket.uuid}")
             return
         }
         // write data
@@ -671,8 +521,7 @@ open class SodtClient(
             }
             // if transfer is complete
             if (incomingTransfersProgress[dataPacket.uuid] == 0L) {
-                LogsActivity.addLog("File transfer completed for UUID ${dataPacket.uuid}")
-                Log.d(TAG, "File transfer completed for UUID ${dataPacket.uuid}")
+                LogsActivity.addLog(logTag, "File transfer completed for UUID ${dataPacket.uuid}")
                 // send acknowledgement
                 val initialTransfer = incomingTransferMetaData[dataPacket.uuid] ?: return@launch
                 val ack = SodtPackets.InitTransferPayload(
@@ -685,6 +534,11 @@ open class SodtClient(
             }
         }
     }
+
+    /**
+     * Removes the transfer request from incomingTransfers, incomingTransfersProgress and incomingTransferMetaData.
+     * If a parcelFileDescriptor is present, it is closed.
+     */
     private fun cleanIncomingTransfers(transferUuid: Int) {
         incomingTransfers[transferUuid]?.close()
         incomingTransfers.remove(transferUuid)

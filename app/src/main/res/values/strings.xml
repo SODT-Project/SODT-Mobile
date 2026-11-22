@@ -38,4 +38,5 @@
     <string name="dialog_file_transfer_message">Client %1$s wants to send file \'%2$s\' (%3$s). Do you want to accept?</string>
     <string name="dialog_accept">Accept</string>
     <string name="dialog_deny">Deny</string>
+    <string name="toast_discovery_not_verified">Warning: Server discovery signature could not be verified!</string>
 </resources>
