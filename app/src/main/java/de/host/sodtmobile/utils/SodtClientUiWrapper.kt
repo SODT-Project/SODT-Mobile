@@ -1,8 +1,12 @@
 package de.host.sodtmobile.utils
 
 import android.content.Context
+import android.text.format.Formatter
 import android.util.Log
 import android.widget.Toast
+import androidx.preference.PreferenceManager
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import de.host.sodtmobile.R
 import de.host.sodtmobile.activities.LogsActivity
 import de.host.sodtmobile.elements.ClientListElement
 import de.host.sodtmobile.elements.ListElementAdapter
@@ -10,7 +14,6 @@ import de.host.sodtmobile.elements.TransferElement
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 /** * SodtClientUiWrapper is a wrapper around the SodtClient that provides additional functionality for the UI.
  * It handles the client list and transfer list, and updates the UI accordingly.
@@ -38,11 +41,22 @@ class SodtClientUiWrapper(
 ) : SodtClient(serverAddress, serverPort, encryptionKey, context.contentResolver) {
     var selectedClient: ClientListElement? = null
 
-    private val TAG = "SodtClientUiWrapper"
+    private val logTag = "SodtClientUiWrapper"
+
+    override fun receiveDiscoveryResponse(dataPacket: SodtPackets.DiscoveryPayload) {
+        if (dataPacket.id.toInt() != 0 && dataPacket.signature != null && dataPacket.code < 300) {
+            if (!encryptionManager.verifySignature(serverCertificate, dataPacket)) {
+                CoroutineScope(Dispatchers.Main).launch {
+                    Toast.makeText(context, R.string.toast_discovery_not_verified, Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+        super.receiveDiscoveryResponse(dataPacket)
+    }
 
     override fun receiveClientList(dataPacket: SodtPackets.ClientListPayload) {
         if (dataPacket.clients == null) {
-            Log.w(TAG, "Empty client list")
+            Log.w(logTag, "Empty client list")
             return
         }
         val clients = org.bouncycastle.util.encoders.Base64.decode(dataPacket.clients).joinToString(",").split(",")
@@ -52,7 +66,7 @@ class SodtClientUiWrapper(
         for (client in clients) {
             val clientId = client.toUByteOrNull()
             // check if clientId is null or if it is the server ID
-            if (clientId == null || clientId == Globals.SERVER_ID) {
+            if (clientId == null || clientId == SodtConstants.SERVER_ID) {
                 continue
             }
             // add client to the client list
@@ -68,20 +82,53 @@ class SodtClientUiWrapper(
     }
 
     override fun respondToTransferRequest(remoteID: UByte, dataPacket: SodtPackets.InitTransferPayload) {
+        if (dataPacket.code == 100) {
+            val prefs = PreferenceManager.getDefaultSharedPreferences(context)
+            val autoAccept = prefs.getBoolean("preference_auto_accept_transfer", false)
+            if (autoAccept) {
+                acceptTransferRequest(remoteID, dataPacket)
+                CoroutineScope(Dispatchers.Main).launch {
+                    transferList.add(0, TransferElement(
+                        transferId = dataPacket.uuid,
+                        senderName = remoteID.toString(),
+                        fileName = dataPacket.filename,
+                        totalSize = dataPacket.filesize,
+                        fileHash = dataPacket.filehash,
+                        remainingSize = dataPacket.filesize
+                    ))
+                    transferListElementAdapter.notifyItemInserted(0)
+                }
+                return
+            }
+
+            CoroutineScope(Dispatchers.Main).launch {
+                val formattedSize = Formatter.formatFileSize(context, dataPacket.filesize)
+                MaterialAlertDialogBuilder(context)
+                    .setTitle(R.string.dialog_file_transfer_title)
+                    .setMessage(context.getString(R.string.dialog_file_transfer_message, remoteID.toString(), dataPacket.filename, formattedSize))
+                    .setCancelable(false)
+                    .setPositiveButton(R.string.dialog_accept) { _, _ ->
+                        acceptTransferRequest(remoteID, dataPacket)
+                        transferList.add(0, TransferElement(
+                            transferId = dataPacket.uuid,
+                            senderName = remoteID.toString(),
+                            fileName = dataPacket.filename,
+                            totalSize = dataPacket.filesize,
+                            fileHash = dataPacket.filehash,
+                            remainingSize = dataPacket.filesize
+                        ))
+                        transferListElementAdapter.notifyItemInserted(0)
+                    }
+                    .setNegativeButton(R.string.dialog_deny) { _, _ ->
+                        denyTransferRequest(remoteID, dataPacket)
+                    }
+                    .show()
+            }
+            return
+        }
+
         super.respondToTransferRequest(remoteID, dataPacket)
         when (dataPacket.code) {
-            100 -> {
-                // save the transfer request
-                transferList.add(0, TransferElement(
-                    transferId = dataPacket.uuid,
-                    senderName = remoteID.toString(),
-                    fileName = dataPacket.filename,
-                    totalSize = dataPacket.filesize,
-                    fileHash = dataPacket.filehash,
-                    remainingSize = dataPacket.filesize
-                ))
-                CoroutineScope(Dispatchers.Main).launch { transferListElementAdapter.notifyItemInserted(0) }
-            }
             200 -> {/*Do nothing on ui level*/}
             250 -> {
                 // make successful transfer acknowledgement visible in UI via Toast
@@ -114,7 +161,7 @@ class SodtClientUiWrapper(
                 }
             }
             else -> {
-                LogsActivity.addLog("File transfer request for ${dataPacket.filename} failed with code: ${dataPacket.code}")
+                LogsActivity.addErrorLog(logTag, "File transfer request for ${dataPacket.filename} failed with code: ${dataPacket.code}")
             }
         }
     }
@@ -124,8 +171,7 @@ class SodtClientUiWrapper(
         // find the transfer in the list (not ideal but enough to fulfill the requirements. Use a map later)
         val transferListIndex = transferList.indexOfFirst { it.transferId == dataPacket.uuid }
         if (transferListIndex == -1) {
-            LogsActivity.addLog("Transfer with UUID ${dataPacket.uuid} not found in transfer list")
-            Log.w(TAG, "Transfer with UUID ${dataPacket.uuid} not found in transfer list")
+            LogsActivity.addErrorLog(logTag, "Transfer with UUID ${dataPacket.uuid} not found in transfer list")
             return
         }
         // update the transfer list and notify the adapter
@@ -147,8 +193,63 @@ class SodtClientUiWrapper(
     }
 
     override fun respondToKeyExchange(remoteID: UByte, requestPacket: SodtPackets.KeyExchangePayload) {
+        if (requestPacket.code == 100) {
+            val prefs = PreferenceManager.getDefaultSharedPreferences(context)
+            val autoAccept = prefs.getBoolean("preference_auto_accept_key_exchange", false)
+            if (autoAccept) {
+                acceptKeyExchange(remoteID, requestPacket)
+                updateClientSharedPhrase(remoteID)
+                return
+            }
+
+            CoroutineScope(Dispatchers.Main).launch {
+                MaterialAlertDialogBuilder(context)
+                    .setTitle(R.string.dialog_key_exchange_title)
+                    .setMessage(context.getString(R.string.dialog_key_exchange_message, remoteID.toString()))
+                    .setCancelable(false)
+                    .setPositiveButton(R.string.dialog_accept) { _, _ ->
+                        acceptKeyExchange(remoteID, requestPacket)
+                        updateClientSharedPhrase(remoteID)
+                    }
+                    .setNegativeButton(R.string.dialog_deny) { _, _ ->
+                        denyKeyExchange(remoteID)
+                    }
+                    .show()
+            }
+            return
+        }
+
         super.respondToKeyExchange(remoteID, requestPacket)
-        // update the client list with the new shared phrase
+        when (requestPacket.code) {
+            200 -> {
+                // update the client list with the new shared phrase (e.g. after code 200 response received)
+                updateClientSharedPhrase(remoteID)
+            }
+            300 -> {
+                CoroutineScope(Dispatchers.Main).launch {
+                    Toast.makeText(context, "Key exchange rejected by $remoteID", Toast.LENGTH_SHORT).show()
+                    if (selectedClient?.clientId == remoteID) {
+                        selectedClient = null
+                        onClientSetAction(null)
+                    }
+                }
+            }
+            400 -> {
+                CoroutineScope(Dispatchers.Main).launch {
+                    Toast.makeText(context, "Key exchange failed with $remoteID", Toast.LENGTH_SHORT).show()
+                    if (selectedClient?.clientId == remoteID) {
+                        selectedClient = null
+                        onClientSetAction(null)
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Updates the shared phrase for a client in the client list visually.
+     */
+    private fun updateClientSharedPhrase(remoteID: UByte) {
         val clientIndex = clientList.indexOfFirst { it.clientId == remoteID }
         if (clientIndex != -1) {
             clientList[clientIndex] = ClientListElement(remoteID, remoteID.toString(), encryptionManager.getSharedPhraseForClient(remoteID))

@@ -7,6 +7,10 @@
     <string name="preference_server_ip">Server Address</string>
     <string name="preference_server_port">Server Port</string>
     <string name="preference_server_public_key">Server Public Key</string>
+    <string name="preference_auto_accept_key_exchange">Auto-accept Key Exchange</string>
+    <string name="preference_auto_accept_key_exchange_summary">Automatically accept incoming key exchange requests</string>
+    <string name="preference_auto_accept_transfer">Auto-accept File Transfer</string>
+    <string name="preference_auto_accept_transfer_summary">Automatically accept incoming file transfer requests</string>
     <string name="submit_button">Submit</string>
     <string name="preferences_subtitle">Configure relay server connection and security keys</string>
     <!-- string values for main activity -->
@@ -27,4 +31,12 @@
     <string name="close">Close</string>
     <string name="clear">Clear</string>
     <string name="logs_subtitle">Network events and diagnostics</string>
+    <!-- string values for dialogs -->
+    <string name="dialog_key_exchange_title">Key Exchange Request</string>
+    <string name="dialog_key_exchange_message">Client %1$s requests a key exchange. Do you want to accept?</string>
+    <string name="dialog_file_transfer_title">File Transfer Request</string>
+    <string name="dialog_file_transfer_message">Client %1$s wants to send file \'%2$s\' (%3$s). Do you want to accept?</string>
+    <string name="dialog_accept">Accept</string>
+    <string name="dialog_deny">Deny</string>
+    <string name="toast_discovery_not_verified">Warning: Server discovery signature could not be verified!</string>
 </resources>

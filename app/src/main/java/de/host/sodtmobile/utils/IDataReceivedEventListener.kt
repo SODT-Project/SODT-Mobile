@@ -7,7 +7,7 @@ package de.host.sodtmobile.utils
 interface IDataReceivedEventListener {
     /**
      * This method is called when data is received.
-     * @param data The data that was received.
+     * @param dataPacket The data that was received.
      */
-    fun onDataReceived(data: ByteArray)
+    fun onDataReceived(dataPacket: ByteArray)
 }

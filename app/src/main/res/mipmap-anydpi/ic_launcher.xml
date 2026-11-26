@@ -1,6 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@drawable/ic_launcher_background" />
-    <foreground android:drawable="@drawable/ic_launcher_foreground" />
-    <monochrome android:drawable="@drawable/ic_launcher_foreground" />
+    <foreground>
+        <inset
+            android:drawable="@drawable/sodt_logo_white"
+            android:insetLeft="25dp"
+            android:insetTop="25dp"
+            android:insetRight="25dp"
+            android:insetBottom="25dp" />
+    </foreground>
+    <monochrome android:drawable="@drawable/sodt_logo_white" />
 </adaptive-icon>

@@ -1,6 +1,5 @@
 package de.host.sodtmobile.utils
 
-import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.JsonParser
 import de.host.sodtmobile.activities.LogsActivity
@@ -16,7 +15,7 @@ class SodtReceiver (
     private val encryptionManager: EncryptionManager,
     private val sodtClient: SodtClient) : IDataReceivedEventListener {
 
-    private val TAG = "Receiver"
+    private val logTag = "Receiver"
 
     private fun bytesToUShort(byte1: Byte, byte2: Byte): UShort {
         return ((byte2.toInt() and 0xFF) shl 8 or (byte1.toInt() and 0xFF)).toUShort()
@@ -32,13 +31,6 @@ class SodtReceiver (
         val gson = Gson()
         val jsonObject = JsonParser.parseString(json).asJsonObject
         val type = jsonObject["type"].asString
-        val statusCode = jsonObject["code"].asInt
-
-        if (statusCode == 400) {
-            LogsActivity.addLog("Error request received (Code 400): $json")
-            Log.e(TAG, "Invalid Request")
-            return
-        }
 
         when (type) {
             "discovery" -> sodtClient.receiveDiscoveryResponse(gson.fromJson(json, SodtPackets.DiscoveryPayload::class.java))
@@ -73,8 +65,7 @@ class SodtReceiver (
         }
 
         if (decryptedMessage == null) {
-            LogsActivity.addLog("Decryption failed for source ID: $sourceId")
-            Log.e(TAG, "Decryption failed for source ID: $sourceId")
+            LogsActivity.addErrorLog(logTag, "Decryption failed for source ID: $sourceId")
             return
         }
         // the first two bytes are the size of the message

@@ -18,22 +18,19 @@ import javax.crypto.spec.SecretKeySpec
 
 /**
  * The `EncryptionManager` class handles encryption and decryption operations for secure communication.
- * It supports AES encryption for client-server and client-client communication, as well as RSA encryption
- * for secure key exchange with the server. Additionally, it provides methods for ECDH key exchange to
+ * It supports AES encryption for client-server and client-client communication
+ * Additionally, it provides methods for ECDH key exchange to
  * derive shared secrets for symmetric encryption.
  *
  * Key Features:
- * - AES encryption with CFB8 mode for secure data transfer.
- * - RSA encryption for secure key exchange with the server.
+ * - AES encryption with GCM mode for secure data transfer.
  * - ECDH key exchange for deriving shared secrets between clients.
- * - Management of session keys and initialization vectors (IVs) for secure communication.
- *
- * @param serverPublicKey The server's RSA public key in PEM format, used for secure key exchange.
+ * - Management of session keys.
+ * - Management of shared phrases for client to client key exchange verification.
  */
 class EncryptionManager() {
 
-    private val TAG = "EncryptionManager"
-    private val aesKeySize = 256 // AES-256
+    private val logTag = "EncryptionManager"
     private val ecCurve = "secp256r1"
     private val aesAlgorithm = "AES/Gcm/NoPadding"
     private val aesSessionKeys = mutableMapOf<UByte, SecretKey>()
@@ -55,15 +52,29 @@ class EncryptionManager() {
         return aesSessionKeys.containsKey(clientId)
     }
 
+    /**
+     * Returns the shared phrase for the given client ID.
+     * @param clientId The ID of the client.
+     * @return The shared phrase for the client or null if not found.
+     */
     fun getSharedPhraseForClient(clientId: UByte): String? {
         return sharedPhraseMap[clientId]
     }
 
+    /**
+     * Converts a key pair to a base64 encoded string.
+     */
     private fun getEcdhKeyAsBase64(keyPair: KeyPair): String {
         // Get the public key in X.509 format
         return Base64.encodeToString(keyPair.public.encoded, Base64.NO_WRAP)
     }
 
+    /**
+     * Creates a new ECDH key pair for the given remote ID.
+     * The key pair is stored in the ecdhSessionKeyGenerators map and also returned
+     * @param remoteId The ID of the remote client.
+     * @return The base64 encoded public key of the generated key pair.
+     */
     fun createEcdhKeyPair(remoteId: UByte): String{
         val keyPairGenerator = KeyPairGenerator.getInstance("EC")
         keyPairGenerator.initialize(ECGenParameterSpec(ecCurve), SecureRandom())
@@ -71,6 +82,11 @@ class EncryptionManager() {
         return getEcdhKeyAsBase64(ecdhSessionKeyGenerators[remoteId]!!) // !! is safe because it is just added above
     }
 
+    /**
+     * Derives a shared secret from a base64 encoded ECDH public key.
+     * @param remoteId The ID of the remote client.
+     * @param base64otherPublicKey The base64 encoded public key of the other client.
+     */
     private fun deriveSharedSecretFromBase64Key(remoteId: UByte, base64otherPublicKey: String): ByteArray {
         // get matching key pair from generator
         val ecdhKeyPair = ecdhSessionKeyGenerators[remoteId]
@@ -105,7 +121,12 @@ class EncryptionManager() {
         return secretKey
     }
 
-
+    /**
+     * Generates and stores an AES session key from the key exchange.
+     * Also generates and stores a shared phrase for the client.
+     * @param remoteId The ID of the remote client.
+     * @param otherKeyBase64 The base64 encoded public key of the other client.
+     */
     fun generateAndStoreAesSessionKeyFromKeyExchange(remoteId: UByte, otherKeyBase64: String) {
         val sharedSecret = deriveSharedSecretFromBase64Key(remoteId, otherKeyBase64)
         val aesSessionKey = deriveAesKeyFromSharedSecret(sharedSecret)
@@ -113,6 +134,11 @@ class EncryptionManager() {
         sharedPhraseMap[remoteId] = getSharedPhrase(remoteId, otherKeyBase64)
     }
 
+    /**
+     * Encrypts a message using AES-GCM.
+     * @param remoteId The ID of the remote client. Used to find the session key.
+     * @param baseMessage The message to encrypt.
+     */
     fun encryptAesGcm(remoteId: UByte, baseMessage: SodtPackets.IBasePacket): ByteArray? {
         // prepare
         val toEncrypt = baseMessage.toByteArray()
@@ -129,6 +155,11 @@ class EncryptionManager() {
         return nonce + tag + encryptedWithoutTag
     }
 
+    /**
+     * Decrypts a message using AES-GCM.
+     * @param clientId The ID of the client that sent the message.
+     * @param receivedData The encrypted message. Must be exactly SodtConstants.FULL_MESSAGE_SIZE bytes long.
+     */
     fun decryptAesGcm(clientId: UByte, receivedData: ByteArray): ByteArray? {
         require(receivedData.size == SodtConstants.FULL_MESSAGE_SIZE) {
             "Data size must be exactly ${SodtConstants.FULL_MESSAGE_SIZE} bytes, but was ${receivedData.size}"
@@ -147,11 +178,17 @@ class EncryptionManager() {
             return cipher.doFinal(ciphertext + tag)
         }
         catch (e: Exception) {
-            Log.e(TAG, "Decryption failed for client ID: $clientId", e)
+            Log.e(logTag, "Decryption failed for client ID: $clientId", e)
         }
         return null
     }
 
+    /**
+     * Derives a shared phrase from the shared secret.
+     * @param remoteId The ID of the remote client.
+     * @param otherKeyBase64 The base64 encoded public key of the other client.
+     * @return The derived shared phrase in hex format "XX-XX-XX-XX-XX"
+     */
     private fun getSharedPhrase(remoteId: UByte, otherKeyBase64: String): String {
         val sharedSecret = deriveSharedSecretFromBase64Key(remoteId, otherKeyBase64)
         val sha256 = MessageDigest.getInstance("SHA-256")
@@ -162,6 +199,10 @@ class EncryptionManager() {
         return "${keyParts[0]}-${keyParts[4]}-${keyParts[8]}-${keyParts[16]}-${keyParts[31]}"
     }
 
+    /**
+     * Parses a PEM encoded public key into a PublicKey object.
+     * @param pemString The PEM encoded public key.
+     */
     fun parsePemPublicKey(pemString: String): PublicKey? {
          val publicKeyPem = pemString
              .replace("-----BEGIN PUBLIC KEY-----", "")
@@ -179,6 +220,11 @@ class EncryptionManager() {
          return keyFactory.generatePublic(keySpec)
     }
 
+    /**
+     * Verifies the signature of a discovery response.
+     * @param certificate The certificate of the server.
+     * @param dataPacket The discovery response packet to verify.
+     */
     fun verifySignature(certificate: String, dataPacket: SodtPackets.DiscoveryPayload): Boolean {
         // prepare certificate
         val publicKey = parsePemPublicKey(certificate) ?: return false
@@ -199,24 +245,31 @@ class EncryptionManager() {
             val signatureBytes = Base64.decode(dataPacket.signature, Base64.DEFAULT)
             val isValid = signature.verify(ieeeP1363ToDer(signatureBytes))
             if (!isValid) {
-                Log.e(TAG, "Signature verification failed")
+                Log.e(logTag, "Signature verification failed")
             }
             isValid
         } catch (e: Exception) {
-            Log.e(TAG, "Error during signature verification", e)
+            Log.e(logTag, "Error during signature verification", e)
             false
         }
     }
 
+    /**
+     * Cleans up all session keys and shared phrases.
+     */
     fun close(){
         aesSessionKeys.clear()
         ecdhSessionKeyGenerators.clear()
         sharedPhraseMap.clear()
     }
 
-    // AI code to convert IEEE P1363 signature to DER format for ECDSA verification
+    /**
+     * Converts an IEEE P1363 signature to DER format.
+     * SODT uses IEEE P1363 for its signature but Android uses DER.
+     * This code is AI generated.
+     */
     private fun ieeeP1363ToDer(ieeeSignature: ByteArray): ByteArray {
-        require(ieeeSignature.size % 2 == 0) { "Ungültige Signatur-Länge" }
+        require(ieeeSignature.size % 2 == 0) { "Invalid IEEE P1363 signature length" }
         val halfLength = ieeeSignature.size / 2
 
         val r = ieeeSignature.copyOfRange(0, halfLength)
