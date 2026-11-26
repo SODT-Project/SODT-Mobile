@@ -56,12 +56,16 @@ class EncryptionManager {
         if (keyStore.containsAlias(alias)) {
             keyStore.deleteEntry(alias)
         }
-        val protection = KeyProtection.Builder(
-            KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
-        )
-            .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-            .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-            .build()
+        val protection = try {
+            KeyProtection.Builder(
+                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+            )
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .build()
+        } catch (e: Throwable) {
+            null
+        }
         keyStore.setEntry(alias, KeyStore.SecretKeyEntry(secretKey), protection)
     }
 
@@ -185,11 +189,11 @@ class EncryptionManager {
      * @param baseMessage The message to encrypt.
      */
     fun encryptAesGcm(remoteId: UByte, baseMessage: SodtPackets.IBasePacket): ByteArray? {
+        val aes = getSessionKey(remoteId)
+        requireNotNull(aes) { "AES session key not found for client ID: $remoteId." }
         try {
             // prepare
             val toEncrypt = baseMessage.toByteArray()
-            val aes = getSessionKey(remoteId)
-            requireNotNull(aes) { "AES session key not found for client ID: $remoteId." }
             val cipher = Cipher.getInstance(aesAlgorithm)
             cipher.init(Cipher.ENCRYPT_MODE, aes)
             // encrypt

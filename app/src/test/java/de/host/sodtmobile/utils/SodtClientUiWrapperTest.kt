@@ -28,6 +28,12 @@ import java.security.spec.ECGenParameterSpec
 @Config(sdk = [34])
 class SodtClientUiWrapperTest {
 
+    companion object {
+        init {
+            TestAndroidKeyStoreProvider.install()
+        }
+    }
+
     private lateinit var context: Context
     private lateinit var clientList: MutableList<ClientListElement>
     private lateinit var transferList: MutableList<TransferElement>

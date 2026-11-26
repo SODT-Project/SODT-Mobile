@@ -19,6 +19,12 @@ import java.security.spec.ECGenParameterSpec
 @RunWith(RobolectricTestRunner::class)
 class SodtClientTest {
 
+    companion object {
+        init {
+            TestAndroidKeyStoreProvider.install()
+        }
+    }
+
     private lateinit var context: Context
     private lateinit var contentResolver: ContentResolver
     private lateinit var dummyCertPem: String

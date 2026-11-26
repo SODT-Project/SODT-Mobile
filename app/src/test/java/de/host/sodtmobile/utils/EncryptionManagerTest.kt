@@ -20,6 +20,12 @@ import java.security.spec.ECGenParameterSpec
 @RunWith(RobolectricTestRunner::class)
 class EncryptionManagerTest {
 
+    companion object {
+        init {
+            TestAndroidKeyStoreProvider.install()
+        }
+    }
+
     private lateinit var managerA: EncryptionManager
     private lateinit var managerB: EncryptionManager
 
