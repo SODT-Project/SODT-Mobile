@@ -1,5 +1,7 @@
 package de.host.sodtmobile.utils
 
+import android.security.keystore.KeyProtection
+import android.security.keystore.KeyProperties
 import android.util.Base64
 import android.util.Log
 import java.security.KeyFactory
@@ -25,7 +27,7 @@ import javax.crypto.spec.SecretKeySpec
  * Key Features:
  * - AES encryption with GCM mode for secure data transfer.
  * - ECDH key exchange for deriving shared secrets between clients.
- * - Management of session keys.
+ * - Management of session keys using Android KeyStore.
  * - Management of shared phrases for client to client key exchange verification.
  */
 class EncryptionManager() {
@@ -33,23 +35,48 @@ class EncryptionManager() {
     private val logTag = "EncryptionManager"
     private val ecCurve = "secp256r1"
     private val aesAlgorithm = "AES/Gcm/NoPadding"
-    private val aesSessionKeys = mutableMapOf<UByte, SecretKey>()
+
+    /**
+     * KeyStore for storing aes session keys.
+     */
+    private val keyStore = KeyStore.getInstance("AndroidKeyStore").apply {
+        load(null)
+    }
+    private val keyStoreAlias = "sodt_aes_session_key"
     private val ecdhSessionKeyGenerators = mutableMapOf<UByte, KeyPair>()
     private val sharedPhraseMap = mutableMapOf<UByte, String>()
 
-    // INFO:
-    // android keystore not used because it does not support needed algorithm configurations
-    // (eg. AES/CFB8/NoPadding)
+    private fun storeSessionKey(clientId: UByte, secretKey: SecretKey) {
+        val alias = keyStoreAlias + clientId
+        if (keyStore.containsAlias(alias)) {
+            keyStore.deleteEntry(alias)
+        }
+        val protection = KeyProtection.Builder(
+            KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+        )
+            .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+            .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+            .build()
+        keyStore.setEntry(alias, KeyStore.SecretKeyEntry(secretKey), protection)
+    }
 
+    private fun getSessionKey(clientId: UByte): SecretKey? {
+        val alias = keyStoreAlias + clientId
+        if (!keyStore.containsAlias(alias)) return null
+        return keyStore.getKey(alias, null) as? SecretKey
+    }
 
     fun removeSessionKey(clientId: UByte) {
-        aesSessionKeys.remove(clientId)
+        val alias = keyStoreAlias + clientId
+        if (keyStore.containsAlias(alias)) {
+            keyStore.deleteEntry(alias)
+        }
         ecdhSessionKeyGenerators.remove(clientId)
         sharedPhraseMap.remove(clientId)
     }
 
     fun hasClientSessionKeyFor(clientId: UByte): Boolean {
-        return aesSessionKeys.containsKey(clientId)
+        return keyStore.containsAlias(keyStoreAlias + clientId)
     }
 
     /**
@@ -130,7 +157,7 @@ class EncryptionManager() {
     fun generateAndStoreAesSessionKeyFromKeyExchange(remoteId: UByte, otherKeyBase64: String) {
         val sharedSecret = deriveSharedSecretFromBase64Key(remoteId, otherKeyBase64)
         val aesSessionKey = deriveAesKeyFromSharedSecret(sharedSecret)
-        aesSessionKeys[remoteId] = aesSessionKey
+        storeSessionKey(remoteId, aesSessionKey)
         sharedPhraseMap[remoteId] = getSharedPhrase(remoteId, otherKeyBase64)
     }
 
@@ -142,7 +169,7 @@ class EncryptionManager() {
     fun encryptAesGcm(remoteId: UByte, baseMessage: SodtPackets.IBasePacket): ByteArray? {
         // prepare
         val toEncrypt = baseMessage.toByteArray()
-        val aes = aesSessionKeys[remoteId]
+        val aes = getSessionKey(remoteId)
         requireNotNull(aes){"AES session key not found for client ID: $remoteId."}
         val cipher = Cipher.getInstance(aesAlgorithm)
         cipher.init(Cipher.ENCRYPT_MODE, aes)
@@ -172,7 +199,7 @@ class EncryptionManager() {
         val cipher = Cipher.getInstance(aesAlgorithm)
         // decrypt
         try {
-            val aes = aesSessionKeys[clientId]
+            val aes = getSessionKey(clientId)
             cipher.init(Cipher.DECRYPT_MODE, aes, GCMParameterSpec(128, nonce))
             // cipher expects tag at the end of the message, but sodt protocol puts tag before message, so reverse it
             return cipher.doFinal(ciphertext + tag)
@@ -258,7 +285,17 @@ class EncryptionManager() {
      * Cleans up all session keys and shared phrases.
      */
     fun close(){
-        aesSessionKeys.clear()
+        val aliases = keyStore.aliases()
+        val sessionAliases = mutableListOf<String>()
+        while (aliases.hasMoreElements()) {
+            val alias = aliases.nextElement()
+            if (alias.startsWith(keyStoreAlias)) {
+                sessionAliases.add(alias)
+            }
+        }
+        for (alias in sessionAliases) {
+            keyStore.deleteEntry(alias)
+        }
         ecdhSessionKeyGenerators.clear()
         sharedPhraseMap.clear()
     }
