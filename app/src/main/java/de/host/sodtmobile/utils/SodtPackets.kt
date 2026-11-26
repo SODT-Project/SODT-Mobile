@@ -1,7 +1,6 @@
 package de.host.sodtmobile.utils
 
 import com.google.gson.Gson
-import org.bouncycastle.asn1.ocsp.Signature
 import java.util.UUID
 
 /** * This object contains all packets used in the SODT protocol.

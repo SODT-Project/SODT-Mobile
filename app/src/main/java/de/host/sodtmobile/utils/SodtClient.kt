@@ -1,12 +1,8 @@
 package de.host.sodtmobile.utils
 
-import android.R.attr.mimeType
 import android.content.ContentResolver
-import android.content.ContentValues
 import android.net.Uri
 import android.os.ParcelFileDescriptor
-import android.provider.MediaStore
-import android.provider.OpenableColumns
 import android.util.Base64
 import android.util.Log
 import de.host.sodtmobile.activities.LogsActivity
@@ -20,7 +16,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.FileOutputStream
 import java.nio.ByteBuffer
-import java.security.MessageDigest
 import kotlin.time.Duration.Companion.milliseconds
 
 /** * SodtClient is the main class for the Sodt client.
@@ -76,7 +71,7 @@ open class SodtClient(
     /**
      * Map to store incoming transfers progress.
      * Key is the uuid of the transfer request.
-     * Value is the remaining size of the file to be transferred. Therefore 0 means the transfer is complete.
+     * Value is the remaining size of the file to be transferred. Therefore, 0 means the transfer is complete.
      */
     internal val incomingTransfersProgress = mutableMapOf<Int, Long>()
 

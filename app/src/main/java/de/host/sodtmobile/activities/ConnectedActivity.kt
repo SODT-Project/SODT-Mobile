@@ -1,14 +1,18 @@
 package de.host.sodtmobile.activities
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.util.Log
 import android.view.View
 import android.widget.Button
 import android.widget.Toast
 import androidx.activity.result.ActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import de.host.sodtmobile.R
@@ -17,6 +21,7 @@ import de.host.sodtmobile.elements.ClientListElement
 import de.host.sodtmobile.elements.IListElement
 import de.host.sodtmobile.elements.TransferElement
 import de.host.sodtmobile.elements.ProgressBarListElementAdapter
+import de.host.sodtmobile.services.FileTransferService
 import de.host.sodtmobile.utils.Globals
 import de.host.sodtmobile.utils.SodtClientUiWrapper
 
@@ -31,6 +36,14 @@ class ConnectedActivity : AppCompatActivity() {
     private lateinit var clientListElementAdapter: ClickableListElementAdapter
     private lateinit var transferElementAdapter: ProgressBarListElementAdapter
     private lateinit var sodtClient: SodtClientUiWrapper
+
+    private val requestNotificationPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
+            if (!isGranted) {
+                Log.w("ConnectedActivity", "Notification permission not granted for Foreground Service")
+            }
+        }
+
     // activity for result handler
     val getFileAndSend = registerForActivityResult(StartActivityForResult()) { uri: ActivityResult ->
         if (uri.resultCode == RESULT_OK) {
@@ -52,6 +65,11 @@ class ConnectedActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_connected)
+
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            requestNotificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+
         // ui elements
         selectFileButton = findViewById(R.id.button_selectFile)
         recyclerViewClientList = findViewById(R.id.recyclerView_clientList)
@@ -75,6 +93,8 @@ class ConnectedActivity : AppCompatActivity() {
             this::selectClient,
             transfers,
             transferElementAdapter)
+        FileTransferService.startService(this)
+
         // sleep for a short time to allow the client to connect
         Thread.sleep(150)
         if (!sodtClient.isInitiated) {
@@ -106,6 +126,7 @@ class ConnectedActivity : AppCompatActivity() {
     }
     private fun disconnect(){
         sodtClient.disconnect()
+        FileTransferService.stopService(this)
         finish() // Close the activity, returning to the previous one (MainActivity)
     }
     fun onSendFileToButtonClick(view: View) {
@@ -125,8 +146,12 @@ class ConnectedActivity : AppCompatActivity() {
         getFileAndSend.launch(intent)
     }
     override fun onBackPressed() {
-        disconnect()
-        super.onBackPressed()
+        if (::sodtClient.isInitialized && sodtClient.isConnected) {
+            moveTaskToBack(true)
+        } else {
+            disconnect()
+            super.onBackPressed()
+        }
     }
 
     override fun onResume() {
