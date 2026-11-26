@@ -14,10 +14,9 @@ import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import de.host.sodtmobile.R
 import de.host.sodtmobile.activities.ConnectedActivity
-import de.host.sodtmobile.utils.SodtClientUiWrapper
 
 /**
- * FileTransferService is a Android Foreground Service responsible for keeping
+ * FileTransferService is an Android Foreground Service responsible for keeping
  * network socket connections and background file transfers active when the user
  * closes or minimizes the SodtMobile application.
  *
@@ -103,11 +102,6 @@ class FileTransferService : Service() {
         const val CHANNEL_ID = "sodt_file_transfer_channel"
         const val NOTIFICATION_ID = 1001
         const val ACTION_STOP_SERVICE = "de.host.sodtmobile.services.STOP_SERVICE"
-
-        /**
-         * Holds a reference to the active [SodtClientUiWrapper] instance while connected.
-         */
-        var activeClient: SodtClientUiWrapper? = null
 
         /**
          * Convenience helper to launch [FileTransferService] as a foreground service.

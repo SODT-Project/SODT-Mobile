@@ -93,7 +93,6 @@ class ConnectedActivity : AppCompatActivity() {
             this::selectClient,
             transfers,
             transferElementAdapter)
-        FileTransferService.activeClient = sodtClient
         FileTransferService.startService(this)
 
         // sleep for a short time to allow the client to connect
@@ -127,7 +126,6 @@ class ConnectedActivity : AppCompatActivity() {
     }
     private fun disconnect(){
         sodtClient.disconnect()
-        FileTransferService.activeClient = null
         FileTransferService.stopService(this)
         finish() // Close the activity, returning to the previous one (MainActivity)
     }
