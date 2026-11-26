@@ -34,17 +34,14 @@ The client uses ECDH to establish a session key. Messages and file data are then
 
 <img width="270" height="700" alt="App Preferences" src="https://github.com/user-attachments/assets/439302bb-8752-4d40-9da2-66c8202a6a35" />
 
-3. Set the Server, Port, and Key in Preferences.
+3. Set the Server, Port, and Key in Preferences and connect to the server.
 
 <img width="270" height="700" alt="Connect to Server" src="https://github.com/user-attachments/assets/597a7e14-0b5f-496a-b3de-936432aa651a" />
-
-4. Connect to the server.
-
 <img width="270" height="700" alt="Connected To Server" src="https://github.com/user-attachments/assets/5870be7d-470c-401e-abcd-aea8090a9f98" />
 
-5. Tap on other clients to select them and exchange keys.
+4. Tap on other clients to select them and exchange keys.
 
 <img width="270" height="700" alt="Allow File Transfer" src="https://github.com/user-attachments/assets/eb209bb1-b5f7-422c-a041-ba1536c191ea" />
 <img width="270" height="700" alt="Screenshot_20261126_183647" src="https://github.com/user-attachments/assets/96a42c45-2a45-4bf6-8ece-3e1344cda560" />
 
-6. Allow incoming file transfers.
+5. Allow incoming file transfers.
