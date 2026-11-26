@@ -30,7 +30,7 @@ import javax.crypto.spec.SecretKeySpec
  * - Management of session keys using Android KeyStore.
  * - Management of shared phrases for client to client key exchange verification.
  */
-class EncryptionManager() {
+class EncryptionManager {
 
     private val logTag = "EncryptionManager"
     private val ecCurve = "secp256r1"
@@ -197,7 +197,7 @@ class EncryptionManager() {
             val encrypted = cipher.doFinal(toEncrypt)
             val tag = encrypted.slice(encrypted.size - SodtConstants.TAG_SIZE until encrypted.size)
                 .toByteArray()
-            // remove tag, because in sodt protocol its at the beginning of the message
+            // remove tag, because in sodt protocol it's at the beginning of the message
             val encryptedWithoutTag =
                 encrypted.slice(0 until encrypted.size - SodtConstants.TAG_SIZE)
             return nonce + tag + encryptedWithoutTag
