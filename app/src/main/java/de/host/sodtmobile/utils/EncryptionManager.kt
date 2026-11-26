@@ -46,6 +46,11 @@ class EncryptionManager() {
     private val ecdhSessionKeyGenerators = mutableMapOf<UByte, KeyPair>()
     private val sharedPhraseMap = mutableMapOf<UByte, String>()
 
+    /**
+     * Stores an AES session key in the Android KeyStore.
+     * @param clientId The ID of the client.
+     * @param secretKey The AES session key to store.
+     */
     private fun storeSessionKey(clientId: UByte, secretKey: SecretKey) {
         val alias = keyStoreAlias + clientId
         if (keyStore.containsAlias(alias)) {
@@ -60,12 +65,21 @@ class EncryptionManager() {
         keyStore.setEntry(alias, KeyStore.SecretKeyEntry(secretKey), protection)
     }
 
+    /**
+     * Retrieves an AES session key from the Android KeyStore.
+     * @param clientId The ID of the client.
+     * @return The AES session key or null if not found.
+     */
     private fun getSessionKey(clientId: UByte): SecretKey? {
         val alias = keyStoreAlias + clientId
         if (!keyStore.containsAlias(alias)) return null
         return keyStore.getKey(alias, null) as? SecretKey
     }
 
+    /**
+     * Removes an AES session key from the Android KeyStore.
+     * @param clientId The ID of the client.
+     */
     fun removeSessionKey(clientId: UByte) {
         val alias = keyStoreAlias + clientId
         if (keyStore.containsAlias(alias)) {
@@ -75,6 +89,10 @@ class EncryptionManager() {
         sharedPhraseMap.remove(clientId)
     }
 
+    /**
+     * Checks if an AES session key exists for the given client ID.
+     * @param clientId The ID of the client.
+     */
     fun hasClientSessionKeyFor(clientId: UByte): Boolean {
         return keyStore.containsAlias(keyStoreAlias + clientId)
     }
@@ -89,7 +107,7 @@ class EncryptionManager() {
     }
 
     /**
-     * Converts a key pair to a base64 encoded string.
+     * Converts the public key of a key pair to a base64 encoded string.
      */
     private fun getEcdhKeyAsBase64(keyPair: KeyPair): String {
         // Get the public key in X.509 format
@@ -102,7 +120,7 @@ class EncryptionManager() {
      * @param remoteId The ID of the remote client.
      * @return The base64 encoded public key of the generated key pair.
      */
-    fun createEcdhKeyPair(remoteId: UByte): String{
+    fun createEcdhKeyPair(remoteId: UByte): String {
         val keyPairGenerator = KeyPairGenerator.getInstance("EC")
         keyPairGenerator.initialize(ECGenParameterSpec(ecCurve), SecureRandom())
         ecdhSessionKeyGenerators[remoteId] = keyPairGenerator.generateKeyPair()
@@ -113,6 +131,7 @@ class EncryptionManager() {
      * Derives a shared secret from a base64 encoded ECDH public key.
      * @param remoteId The ID of the remote client.
      * @param base64otherPublicKey The base64 encoded public key of the other client.
+     * @return The raw shared secret byte array.
      */
     private fun deriveSharedSecretFromBase64Key(remoteId: UByte, base64otherPublicKey: String): ByteArray {
         // get matching key pair from generator
@@ -135,10 +154,9 @@ class EncryptionManager() {
     }
 
     /**
-     * Derives an AES key and IV from the shared secret.
-     * The key is derived using SHA-256, and the IV is derived from the key halves.
+     * Derives an AES key from a shared secret via SHA-256 hash.
      * @param sharedSecret The raw shared secret byte array.
-     * @return AesKeyMaterial containing the derived AES key and IV.
+     * @return The derived AES key.
      */
     private fun deriveAesKeyFromSharedSecret(sharedSecret: ByteArray): SecretKey {
         val sha256 = MessageDigest.getInstance("SHA-256")
@@ -167,19 +185,27 @@ class EncryptionManager() {
      * @param baseMessage The message to encrypt.
      */
     fun encryptAesGcm(remoteId: UByte, baseMessage: SodtPackets.IBasePacket): ByteArray? {
-        // prepare
-        val toEncrypt = baseMessage.toByteArray()
-        val aes = getSessionKey(remoteId)
-        requireNotNull(aes){"AES session key not found for client ID: $remoteId."}
-        val cipher = Cipher.getInstance(aesAlgorithm)
-        cipher.init(Cipher.ENCRYPT_MODE, aes)
-        // encrypt
-        val nonce = cipher.iv
-        val encrypted = cipher.doFinal(toEncrypt)
-        val tag = encrypted.slice(encrypted.size - SodtConstants.TAG_SIZE until encrypted.size).toByteArray()
-        // remove tag, because in sodt protocol its at the beginning of the message
-        val encryptedWithoutTag = encrypted.slice(0 until encrypted.size - SodtConstants.TAG_SIZE)
-        return nonce + tag + encryptedWithoutTag
+        try {
+            // prepare
+            val toEncrypt = baseMessage.toByteArray()
+            val aes = getSessionKey(remoteId)
+            requireNotNull(aes) { "AES session key not found for client ID: $remoteId." }
+            val cipher = Cipher.getInstance(aesAlgorithm)
+            cipher.init(Cipher.ENCRYPT_MODE, aes)
+            // encrypt
+            val nonce = cipher.iv
+            val encrypted = cipher.doFinal(toEncrypt)
+            val tag = encrypted.slice(encrypted.size - SodtConstants.TAG_SIZE until encrypted.size)
+                .toByteArray()
+            // remove tag, because in sodt protocol its at the beginning of the message
+            val encryptedWithoutTag =
+                encrypted.slice(0 until encrypted.size - SodtConstants.TAG_SIZE)
+            return nonce + tag + encryptedWithoutTag
+        }
+        catch (e: Exception) {
+            Log.e(logTag, "Encryption failed for client ID: $remoteId", e)
+        }
+        return null
     }
 
     /**
@@ -222,7 +248,7 @@ class EncryptionManager() {
         val derivedKey = sha256.digest(sharedSecret) // 32-byte key
         val keyInHex = derivedKey.joinToString("") { "%02X".format(it) }
         val keyParts = keyInHex.chunked(2) // split into pairs of 2 characters
-        // return 0th, 4th, 8th, 16th, 31th pair with hyphens
+        // return 0th, 4th, 8th, 16th, 31st pair with hyphens
         return "${keyParts[0]}-${keyParts[4]}-${keyParts[8]}-${keyParts[16]}-${keyParts[31]}"
     }
 
@@ -249,8 +275,10 @@ class EncryptionManager() {
 
     /**
      * Verifies the signature of a discovery response.
+     * Uses SHA256withECDSA as signature algorithm.
      * @param certificate The certificate of the server.
      * @param dataPacket The discovery response packet to verify.
+     * @return True if the signature is valid, false otherwise.
      */
     fun verifySignature(certificate: String, dataPacket: SodtPackets.DiscoveryPayload): Boolean {
         // prepare certificate
@@ -285,16 +313,12 @@ class EncryptionManager() {
      * Cleans up all session keys and shared phrases.
      */
     fun close(){
-        val aliases = keyStore.aliases()
-        val sessionAliases = mutableListOf<String>()
-        while (aliases.hasMoreElements()) {
-            val alias = aliases.nextElement()
-            if (alias.startsWith(keyStoreAlias)) {
-                sessionAliases.add(alias)
+        // only if an ecdh session key exists, there can be an aes key in the keystore
+        for (id in ecdhSessionKeyGenerators.keys) {
+            val alias = keyStoreAlias + id
+            if (keyStore.containsAlias(alias)) {
+                keyStore.deleteEntry(alias)
             }
-        }
-        for (alias in sessionAliases) {
-            keyStore.deleteEntry(alias)
         }
         ecdhSessionKeyGenerators.clear()
         sharedPhraseMap.clear()
@@ -304,6 +328,8 @@ class EncryptionManager() {
      * Converts an IEEE P1363 signature to DER format.
      * SODT uses IEEE P1363 for its signature but Android uses DER.
      * This code is AI generated.
+     * @param ieeeSignature The IEEE P1363 signature.
+     * @return The DER encoded signature.
      */
     private fun ieeeP1363ToDer(ieeeSignature: ByteArray): ByteArray {
         require(ieeeSignature.size % 2 == 0) { "Invalid IEEE P1363 signature length" }
