@@ -1,0 +1,2 @@
+Initaler Release.
+Eine funktionierende Basisversion der SODT-Mobile App. 

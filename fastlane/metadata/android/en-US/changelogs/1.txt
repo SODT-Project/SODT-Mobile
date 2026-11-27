@@ -1,0 +1,2 @@
+Initial Release.
+A basic working SODT-Mobile client.
