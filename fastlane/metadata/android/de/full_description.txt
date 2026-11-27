@@ -1,0 +1,4 @@
+SODT Mobile ist ein Android-Client zum Senden und Empfangen von Dateien über einen SODT-Server mittels des SODT-Protokolls.
+
+Secure Online Data Transfer (SODT) ist ein eigens entwickeltes TCP-basiertes Protokoll zum Austausch von Daten zwischen zwei SODT-Clients bzw. zwischen einem SODT-Client und dem Server.
+Das SODT-Protokoll nutzt AES256 GCM um Nachrichten Ende-zu-Ende verschlüsselt zu übertragen. Der AES-Schlüssel wird über ECDH ausgetauscht.

@@ -1,0 +1,1 @@
+Ein mobiler client für Secure Online Data Transfer (SODT) 
